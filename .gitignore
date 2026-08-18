@@ -11,3 +11,8 @@ local.properties
 /app/build
 /app/release
 *.apk
+
+# Windows port build output
+/windows/out
+/windows/AT.Panther/bin
+/windows/AT.Panther/obj
