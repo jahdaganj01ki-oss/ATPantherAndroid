@@ -82,42 +82,40 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             BackColor = Theme.Background,
             ColumnCount = 1,
-            RowCount = 2,
+            RowCount = 4,
             Padding = new Padding(12, 12, 12, 0),
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        // Feste Höhe für die Inhalts-Karten (scrollbar), der gesamte Rest gehört dem Verlauf
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 640));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        // Login + Einstellungen nebeneinander, damit unten für den Verlauf Platz bleibt
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Login | Einstellungen
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Monitor
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));   // Wartung
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Verlauf (ganzer Rest)
 
-        // Scrollbarer Bereich mit den Karten – analog zum ScrollView der Android-App
-        var contentScroll = new Panel
-        {
-            Dock = DockStyle.Fill,
-            AutoScroll = true,
-            BackColor = Theme.Background,
-        };
+        root.Controls.Add(BuildTwoColumnRow(BuildLoginCard(), BuildSettingsCard()), 0, 0);
+        root.Controls.Add(BuildMonitorCard(), 0, 1);
+        root.Controls.Add(BuildMaintenanceCard(), 0, 2);
+        root.Controls.Add(BuildLogCard(), 0, 3);
 
-        var content = new TableLayoutPanel
+        Controls.Add(root);
+    }
+
+    /// <summary>Zwei Karten nebeneinander (je 50 %), mit 12 px Abstand dazwischen.</summary>
+    private Control BuildTwoColumnRow(Control left, Control right)
+    {
+        var row = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            ColumnCount = 1,
+            ColumnCount = 2,
             BackColor = Theme.Background,
         };
-        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        content.Controls.Add(BuildLoginCard(), 0, 0);
-        content.Controls.Add(BuildSettingsCard(), 0, 1);
-        content.Controls.Add(BuildMonitorCard(), 0, 2);
-        content.Controls.Add(BuildMaintenanceCard(), 0, 3);
-
-        contentScroll.Controls.Add(content);
-
-        root.Controls.Add(contentScroll, 0, 0);
-        root.Controls.Add(BuildLogCard(), 0, 1);
-
-        Controls.Add(root);
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        right.Margin = new Padding(12, 0, 0, 10);
+        row.Controls.Add(left, 0, 0);
+        row.Controls.Add(right, 1, 0);
+        return row;
     }
 
     private Panel CreateCard(int height)
@@ -205,7 +203,7 @@ public sealed class MainForm : Form
 
     private Panel BuildSettingsCard()
     {
-        var card = CreateCard(156);
+        var card = CreateCard(180);
 
         var title = CreateSectionTitle("Einstellungen");
         card.Controls.Add(title);
@@ -213,7 +211,7 @@ public sealed class MainForm : Form
         var row = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 30,
+            Height = 58,
             BackColor = Color.Transparent,
             Margin = new Padding(0, 6, 0, 0),
         };
@@ -237,10 +235,11 @@ public sealed class MainForm : Form
             BorderStyle = BorderStyle.FixedSingle,
         };
 
+        // Zweite Zeile: Intervall (die Karte ist jetzt halb so breit)
         var lblInterval = new Label
         {
             Text = "Intervall (Sek.):",
-            Location = new Point(200, 6),
+            Location = new Point(0, 34),
             Size = new Size(100, 20),
             ForeColor = Theme.TextSecondary,
             BackColor = Color.Transparent,
@@ -248,7 +247,7 @@ public sealed class MainForm : Form
 
         _txtInterval = new TextBox
         {
-            Location = new Point(306, 2),
+            Location = new Point(104, 30),
             Size = new Size(70, 24),
             TextAlign = HorizontalAlignment.Right,
             BackColor = Theme.CardAlt,

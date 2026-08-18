@@ -9,7 +9,7 @@
     <RootNamespace>ATPanther</RootNamespace>
     <AssemblyName>ATPanther</AssemblyName>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
-    <Version>1.1.3</Version>
+    <Version>1.1.4</Version>
     <Product>AT Panther</Product>
     <Description>ALDI Talk Datenvolumen-Monitor mit Auto-Nachbuchung (Windows)</Description>
   </PropertyGroup>
