@@ -81,9 +81,11 @@ public sealed class MonitorEngine : IDisposable
         }
 
         var api = session.Value.Api;
-        var contractId = session.Value.ContractId;
+        var contract = session.Value.Contract;
         FireLog("CHECK", -1f, "Login erfolgreich");
-        FireLog("CHECK", -1f, "Vertrags-ID erkannt: " + contractId);
+        FireLog("CHECK", -1f, "Vertrags-ID erkannt: " + contract.ContractId);
+        if (!string.IsNullOrEmpty(contract.SubscriptionId))
+            FireLog("CHECK", -1f, "Subscription-ID erkannt: " + contract.SubscriptionId);
 
         var consecutiveLoginFailures = 0;
 
@@ -94,13 +96,17 @@ public sealed class MonitorEngine : IDisposable
             try
             {
                 // Datenstatus abfragen (die 7-Tage-Retention übernimmt LogStore bei jedem Eintrag)
-                var status = await api.GetRemainingDataAsync(contractId).ConfigureAwait(false);
+                var volume = await api.GetRemainingDataAsync(contract.ContractId, contract.SubscriptionId).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
 
+                var status = volume.Status;
                 if (status == null)
                 {
-                    // Session wahrscheinlich abgelaufen → Re-Login versuchen
-                    var msg = "Datenvolumen konnte nicht abgefragt werden — re-login...";
+                    // Session wahrscheinlich abgelaufen (oder ID falsch) → Re-Login versuchen
+                    var errorPart = string.IsNullOrEmpty(volume.ErrorDetail)
+                        ? "HTTP " + volume.HttpStatus
+                        : $"HTTP {volume.HttpStatus}: {Truncate(volume.ErrorDetail, 140)}";
+                    var msg = $"Datenvolumen konnte nicht abgefragt werden ({errorPart}) — re-login...";
                     FireLog("CHECK", -1f, msg);
                     FireStatus(msg, null);
 
@@ -112,7 +118,7 @@ public sealed class MonitorEngine : IDisposable
                         consecutiveLoginFailures = 0;
                         api.Dispose();
                         api = session.Value.Api;
-                        contractId = session.Value.ContractId;
+                        contract = session.Value.Contract;
                         FireLog("CHECK", -1f, "Re-Login erfolgreich");
                         FireStatus("Re-Login erfolgreich", null);
                         continue; // direkt weiter zum nächsten Abruf, nicht warten
@@ -192,8 +198,8 @@ public sealed class MonitorEngine : IDisposable
         }
     }
 
-    /// <summary>Login + Vertrags-ID-Ermittlung; null bei Misserfolg.</summary>
-    private async Task<(AldiTalkApi Api, string ContractId)?> PerformLoginAsync(string phone, string password)
+    /// <summary>Login + Vertrags-/Subscription-Ermittlung; null bei Misserfolg.</summary>
+    private async Task<(AldiTalkApi Api, ContractInfo Contract)?> PerformLoginAsync(string phone, string password)
     {
         try
         {
@@ -201,13 +207,13 @@ public sealed class MonitorEngine : IDisposable
             if (!loginResult.Success || loginResult.Client == null) return null;
 
             var api = new AldiTalkApi(loginResult.Client);
-            var contractId = await api.ResolveContractIdAsync(phone).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(contractId))
+            var contract = await api.ResolveContractIdAsync(phone).ConfigureAwait(false);
+            if (contract == null || string.IsNullOrEmpty(contract.ContractId))
             {
                 loginResult.Client.Dispose();
                 return null;
             }
-            return (api, contractId);
+            return (api, contract);
         }
         catch
         {

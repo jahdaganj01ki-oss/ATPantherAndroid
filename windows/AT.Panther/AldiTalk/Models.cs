@@ -1,5 +1,11 @@
 namespace ATPanther.AldiTalk;
 
+/// <summary>Vertragsinformationen aus der navigation-list (customer-master-data BFF).</summary>
+public sealed record ContractInfo(string ContractId, string? SubscriptionId, string? Msisdn);
+
+/// <summary>Ergebnis der Volumen-Abfrage inklusive Fehlerdetails fürs Log.</summary>
+public sealed record VolumeQueryResult(DataStatus? Status, int HttpStatus, string ErrorDetail);
+
 /// <summary>Ergebnis der Abfrage des verbleibenden Datenvolumens (Analogie zu DataStatus.kt).</summary>
 public sealed record DataStatus(
     double RemainingMb,

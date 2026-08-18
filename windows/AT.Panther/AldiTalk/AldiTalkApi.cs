@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace ATPanther.AldiTalk;
 
 /// <summary>
-/// BFF-API des ALDI-Talk-Kundenportals – 1:1-Port von AldiTalkApi.kt (Android).
+/// BFF-API des ALDI-Talk-Kundenportals – Port von AldiTalkApi.kt (Android).
 /// </summary>
 public sealed class AldiTalkApi : IDisposable
 {
@@ -24,13 +24,15 @@ public sealed class AldiTalkApi : IDisposable
     };
 
     /// <summary>
-    /// Ermittelt die contractId (subscriptionId) automatisch aus der
+    /// Ermittelt Vertrags- und Subscription-Daten automatisch aus der
     /// navigation-list (customer-master-data BFF) ohne weitere Eingabe –
     /// die Authentifizierung läuft über die nach dem Login gesetzten
-    /// Session-Cookies. Liefert userDetails.subscriptions[0].contractId,
-    /// bzw. den zur Rufnummer passenden Vertrag bei mehreren Verträgen.
+    /// Session-Cookies. Bevorzugt wird der zur Rufnummer passende Eintrag,
+    /// sonst der erste. Neben der contractId wird auch die subscriptionId
+    /// (falls vorhanden) mitgeliefert, da die selfcare-dashboard BFF den
+    /// offers-Parameter als subscriptionId interpretiert.
     /// </summary>
-    public async Task<string?> ResolveContractIdAsync(string msisdn)
+    public async Task<ContractInfo?> ResolveContractIdAsync(string msisdn)
     {
         try
         {
@@ -50,20 +52,23 @@ public sealed class AldiTalkApi : IDisposable
                 return null;
             }
 
+            ContractInfo? Pick(JsonElement sub)
+            {
+                string? Get(string prop) => sub.TryGetProperty(prop, out var v) ? v.GetString() : null;
+                var contractId = Get("contractId");
+                return string.IsNullOrEmpty(contractId)
+                    ? null
+                    : new ContractInfo(contractId, Get("subscriptionId"), Get("msisdn"));
+            }
+
             // 1) bevorzugt: Eintrag, dessen msisdn zur Rufnummer passt
             foreach (var sub in subscriptions.EnumerateArray())
             {
-                if (sub.TryGetProperty("msisdn", out var msisdnProp) &&
-                    msisdnProp.GetString() == msisdn &&
-                    sub.TryGetProperty("contractId", out var contractIdProp))
-                {
-                    return contractIdProp.GetString();
-                }
+                var info = Pick(sub);
+                if (info != null && info.Msisdn == msisdn) return info;
             }
             // 2) Fallback: erster Eintrag
-            return subscriptions[0].TryGetProperty("contractId", out var firstContractId)
-                ? firstContractId.GetString()
-                : null;
+            return Pick(subscriptions[0]);
         }
         catch
         {
@@ -71,24 +76,47 @@ public sealed class AldiTalkApi : IDisposable
         }
     }
 
-    /// <summary>Holt das verbleibende Datenvolumen (dataGrantAmount = allocated − used, KB → MB).</summary>
-    public async Task<DataStatus?> GetRemainingDataAsync(string contractId)
+    /// <summary>
+    /// Holt das verbleibende Datenvolumen (dataGrantAmount = allocated − used, KB → MB).
+    /// Der BFF interpretiert den Query-Parameter als subscriptionId – bei einem
+    /// Autorisierungsfehler mit der contractId wird deshalb automatisch die echte
+    /// subscriptionId probiert (falls bekannt und verschieden).
+    /// Liefert bei Misserfolg Fehlerdetails (HTTP-Status + Antwort) fürs Log.
+    /// </summary>
+    public async Task<VolumeQueryResult> GetRemainingDataAsync(string contractId, string? subscriptionId)
+    {
+        var candidates = new List<string> { contractId };
+        if (!string.IsNullOrEmpty(subscriptionId) && subscriptionId != contractId)
+            candidates.Add(subscriptionId);
+
+        VolumeQueryResult? last = null;
+        foreach (var id in candidates)
+        {
+            last = await TryGetRemainingDataAsync(id).ConfigureAwait(false);
+            if (last.Status != null) return last;
+        }
+        return last ?? new VolumeQueryResult(null, 0, "kein Abruf möglich");
+    }
+
+    private async Task<VolumeQueryResult> TryGetRemainingDataAsync(string id)
     {
         try
         {
             var url = AuthConfig.Portal + "/scs/bff/scs-209-selfcare-dashboard-bff" +
-                      "/selfcare-dashboard/v1/offers?contractId=" + Uri.EscapeDataString(contractId);
+                      "/selfcare-dashboard/v1/offers?contractId=" + Uri.EscapeDataString(id);
             using var resp = await GetAsync(url).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(body);
 
+            if (!resp.IsSuccessStatusCode)
+                return new VolumeQueryResult(null, (int)resp.StatusCode, Truncate(body, 300));
+
+            using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
             if (!root.TryGetProperty("subscribedOffers", out var subscribedOffers) ||
                 subscribedOffers.GetArrayLength() == 0)
             {
-                return null;
+                return new VolumeQueryResult(null, (int)resp.StatusCode,
+                    "subscribedOffers fehlt/leer: " + Truncate(body, 300));
             }
 
             var offer = subscribedOffers[0];
@@ -110,17 +138,19 @@ public sealed class AldiTalkApi : IDisposable
 
             string Get(string prop) => offer.TryGetProperty(prop, out var v) ? v.GetString() ?? "" : "";
 
-            return new DataStatus(
+            var status = new DataStatus(
                 RemainingMb: remainingKb / 1024.0,
                 OfferId: Get("offerId"),
                 SubscriptionId: Get("subscriptionId"),
                 ResourceId: Get("resourceId"),
                 OnDemandAmount: Get("onDemandAmountValueUid"),
                 RefillThreshold: Get("refillThresholdValueUid"));
+
+            return new VolumeQueryResult(status, (int)resp.StatusCode, "");
         }
-        catch
+        catch (Exception e)
         {
-            return null;
+            return new VolumeQueryResult(null, 0, e.Message);
         }
     }
 
@@ -187,4 +217,7 @@ public sealed class AldiTalkApi : IDisposable
         foreach (var (key, value) in BffHeaders())
             req.Headers.TryAddWithoutValidation(key, value);
     }
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
 }
