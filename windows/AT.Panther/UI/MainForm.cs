@@ -58,8 +58,8 @@ public sealed class MainForm : Form
         BackColor = Theme.Background;
         ForeColor = Theme.TextPrimary;
         Font = new Font("Segoe UI", 9f);
-        ClientSize = new Size(760, 820);
-        MinimumSize = new Size(620, 700);
+        ClientSize = new Size(780, 980);
+        MinimumSize = new Size(660, 760);
         StartPosition = FormStartPosition.CenterScreen;
 
         BuildLayout();
@@ -86,8 +86,17 @@ public sealed class MainForm : Form
             Padding = new Padding(12, 12, 12, 0),
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // Feste Höhe für die Inhalts-Karten (scrollbar), der gesamte Rest gehört dem Verlauf
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 640));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        // Scrollbarer Bereich mit den Karten – analog zum ScrollView der Android-App
+        var contentScroll = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = Theme.Background,
+        };
 
         var content = new TableLayoutPanel
         {
@@ -103,7 +112,9 @@ public sealed class MainForm : Form
         content.Controls.Add(BuildMonitorCard(), 0, 2);
         content.Controls.Add(BuildMaintenanceCard(), 0, 3);
 
-        root.Controls.Add(content, 0, 0);
+        contentScroll.Controls.Add(content);
+
+        root.Controls.Add(contentScroll, 0, 0);
         root.Controls.Add(BuildLogCard(), 0, 1);
 
         Controls.Add(root);
@@ -136,7 +147,7 @@ public sealed class MainForm : Form
 
     private Panel BuildLoginCard()
     {
-        var card = CreateCard(204);
+        var card = CreateCard(200);
 
         var title = CreateSectionTitle("Login-Daten");
         card.Controls.Add(title);
@@ -194,7 +205,7 @@ public sealed class MainForm : Form
 
     private Panel BuildSettingsCard()
     {
-        var card = CreateCard(168);
+        var card = CreateCard(156);
 
         var title = CreateSectionTitle("Einstellungen");
         card.Controls.Add(title);
@@ -308,7 +319,7 @@ public sealed class MainForm : Form
 
     private Panel BuildMaintenanceCard()
     {
-        var card = CreateCard(108);
+        var card = CreateCard(100);
 
         var title = CreateSectionTitle("Wartung");
         card.Controls.Add(title);
@@ -356,7 +367,6 @@ public sealed class MainForm : Form
         };
 
         var title = CreateSectionTitle("Verlauf");
-        card.Controls.Add(title);
 
         // Spalten-Header (Label-Zeile, da der ListView-Header systemhell wäre)
         var header = new Panel
