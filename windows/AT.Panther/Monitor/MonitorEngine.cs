@@ -102,10 +102,10 @@ public sealed class MonitorEngine : IDisposable
                 var status = volume.Status;
                 if (status == null)
                 {
-                    // Session wahrscheinlich abgelaufen (oder ID falsch) → Re-Login versuchen
-                    var errorPart = string.IsNullOrEmpty(volume.ErrorDetail)
-                        ? "HTTP " + volume.HttpStatus
-                        : $"HTTP {volume.HttpStatus}: {Truncate(volume.ErrorDetail, 140)}";
+                    // Session wahrscheinlich abgelaufen (oder ID/Parse-Fehler) → Re-Login versuchen
+                    var errorPart = volume.HttpStatus > 0
+                        ? $"HTTP {volume.HttpStatus}: {Truncate(volume.ErrorDetail, 140)}"
+                        : Truncate(volume.ErrorDetail, 160);
                     var msg = $"Datenvolumen konnte nicht abgefragt werden ({errorPart}) — re-login...";
                     FireLog("CHECK", -1f, msg);
                     FireStatus(msg, null);

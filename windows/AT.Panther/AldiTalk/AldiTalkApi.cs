@@ -130,8 +130,10 @@ public sealed class AldiTalkApi : IDisposable
                     {
                         continue;
                     }
-                    var allocated = p.TryGetProperty("allocated", out var a) ? a.GetInt64() : 0;
-                    var used = p.TryGetProperty("used", out var u) ? u.GetInt64() : 0;
+                    // allocated/used kommen je nach Antwort als Zahl ODER String
+                    // (Kotlins optLong toleriert beides; GetInt64 würde bei String werfen)
+                    var allocated = p.TryGetProperty("allocated", out var a) ? ReadLong(a) : 0;
+                    var used = p.TryGetProperty("used", out var u) ? ReadLong(u) : 0;
                     remainingKb = allocated - used;
                 }
             }
@@ -185,7 +187,7 @@ public sealed class AldiTalkApi : IDisposable
             {
                 using var doc = JsonDocument.Parse(respBody);
                 if (doc.RootElement.TryGetProperty("isUpdated", out var updated))
-                    isUpdated = updated.GetBoolean();
+                    isUpdated = ReadBool(updated);
             }
             catch
             {
@@ -216,6 +218,36 @@ public sealed class AldiTalkApi : IDisposable
     {
         foreach (var (key, value) in BffHeaders())
             req.Headers.TryAddWithoutValidation(key, value);
+    }
+
+    /// <summary>Liest eine Zahl tolerant: echte Zahlen UND numerische Strings (wie Android optLong).</summary>
+    private static long ReadLong(JsonElement el)
+    {
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return el.GetInt64();
+            case JsonValueKind.String:
+                return long.TryParse(el.GetString(), out var v) ? v : 0;
+            default:
+                return 0;
+        }
+    }
+
+    /// <summary>Liest einen Boolean tolerant: echte Booleans UND Strings "true"/"false".</summary>
+    private static bool ReadBool(JsonElement el)
+    {
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.True:
+                return true;
+            case JsonValueKind.False:
+                return false;
+            case JsonValueKind.String:
+                return bool.TryParse(el.GetString(), out var v) && v;
+            default:
+                return false;
+        }
     }
 
     private static string Truncate(string value, int maxLength) =>
