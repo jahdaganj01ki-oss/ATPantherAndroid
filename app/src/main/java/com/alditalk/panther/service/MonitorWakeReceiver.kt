@@ -34,6 +34,12 @@ class MonitorWakeReceiver : BroadcastReceiver() {
      *liest der Service beim naechsten Nutzer-Klick neu ein.
      */
     private fun restartMonitor(context: Context, source: Intent?) {
+        val state = context.getSharedPreferences("at_panther_monitor_state", Context.MODE_PRIVATE)
+        if (state.getBoolean("paused_after_connection_failures", false)) {
+            Log.i(TAG, "Monitor-Neustart übersprungen: Verbindung ist nach 3 Fehlern pausiert")
+            return
+        }
+
         val svcIntent = Intent(context, MonitorService::class.java).apply {
             source?.getStringExtra(MonitorService.EXTRA_PHONE)?.let { putExtra(MonitorService.EXTRA_PHONE, it) }
             source?.getStringExtra(MonitorService.EXTRA_PASSWORD)?.let { putExtra(MonitorService.EXTRA_PASSWORD, it) }

@@ -313,6 +313,19 @@ class MainActivity : AppCompatActivity() {
     // ── Service control ──
 
     private fun startMonitor() {
+        val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
+        if (state.getBoolean("paused_after_connection_failures", false)) {
+            Toast.makeText(
+                this,
+                "⛔ Verbindung pausiert nach 3 Fehlern. Tippe erneut auf Start, um es manuell wieder zu versuchen.",
+                Toast.LENGTH_LONG
+            ).show()
+            state.edit()
+                .putInt("consecutive_connection_failures", 0)
+                .putBoolean("paused_after_connection_failures", false)
+                .apply()
+        }
+
         val phone = etPhone.text.toString().trim()
         val password = etPassword.text.toString().trim()
         if (phone.isEmpty() || password.isEmpty()) {

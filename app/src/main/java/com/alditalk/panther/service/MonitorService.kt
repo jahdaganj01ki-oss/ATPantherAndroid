@@ -33,7 +33,11 @@ class MonitorService : Service() {
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "at_panther_monitor"
         private const val NOTIFICATION_ID = 1
+        private const val MAX_CONSECUTIVE_CONNECTION_FAILURES = 3
         private const val MAX_CONSECUTIVE_LOGIN_FAILURES = 5
+        private const val PREFS_NAME = "at_panther_monitor_state"
+        private const val PREF_CONNECTION_FAILURES = "consecutive_connection_failures"
+        private const val PREF_PAUSED_AFTER_FAILURES = "paused_after_connection_failures"
         private const val WAKELOCK_TAG = "ATPanther:MonitorWake"
 
         // Default-Schwelle (Anforderung 2) – 850 MB
@@ -45,6 +49,7 @@ class MonitorService : Service() {
         const val EXTRA_THRESHOLD_MB = "threshold_mb"
         const val EXTRA_INTERVAL_SEC = "interval_sec"
         const val ACTION_STOP = "com.alditalk.panther.STOP"
+        const val ACTION_RESET_CONNECTION_PAUSE = "com.alditalk.panther.RESET_CONNECTION_PAUSE"
 
         /** Broadcast action sent on status update. */
         const val ACTION_STATUS_UPDATE = "com.alditalk.panther.STATUS_UPDATE"
@@ -72,6 +77,19 @@ class MonitorService : Service() {
             cancelFallbackAlarm()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (intent?.action == ACTION_RESET_CONNECTION_PAUSE) {
+            clearConnectionPause()
+            updateNotification("Verbindungspause aufgehoben — starte neu...")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (isConnectionPaused()) {
+            startForeground(NOTIFICATION_ID, buildNotification("⛔ Verbindung pausiert: 3 Fehler — bitte manuell neu starten"))
+            broadcastStatus("⛔ Verbindung pausiert: 3 Fehler — bitte Monitor manuell neu starten", -1f)
             return START_NOT_STICKY
         }
 
@@ -220,7 +238,12 @@ class MonitorService : Service() {
 
         var session = performLogin(phone, password)
         if (session == null) {
-            val msg = "Login fehlgeschlagen (siehe Log)"
+            val failures = recordConnectionFailure()
+            val msg = if (failures >= MAX_CONSECUTIVE_CONNECTION_FAILURES) {
+                "⛔ Verbindung pausiert: $failures Fehler — bitte Monitor manuell neu starten"
+            } else {
+                "Login fehlgeschlagen (Verbindungsfehler $failures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
+            }
             Log.e(TAG, msg)
             logDao.insert(LogEntry(type = "CHECK", message = msg))
             updateNotification(msg)
@@ -228,6 +251,8 @@ class MonitorService : Service() {
             stopSelf()
             return
         }
+
+        clearConnectionFailures()
 
         var api = session.first
         var contractId = session.second
@@ -255,6 +280,7 @@ class MonitorService : Service() {
                     session = performLogin(phone, password)
                     if (session != null) {
                         consecutiveLoginFailures = 0
+                        clearConnectionFailures()
                         api = session.first
                         contractId = session.second
                         Log.i(TAG, "Re-Login erfolgreich")
@@ -265,16 +291,18 @@ class MonitorService : Service() {
                         continue
                     } else {
                         consecutiveLoginFailures++
-                        if (consecutiveLoginFailures >= MAX_CONSECUTIVE_LOGIN_FAILURES) {
-                            val stopMsg = "Re-Login 5x fehlgeschlagen, Monitor gestoppt"
+                        val connectionFailures = recordConnectionFailure()
+                        if (connectionFailures >= MAX_CONSECUTIVE_CONNECTION_FAILURES) {
+                            val stopMsg = "⛔ Verbindung pausiert: $connectionFailures Fehler — bitte Monitor manuell neu starten"
                             Log.e(TAG, stopMsg)
                             logDao.insert(LogEntry(type = "CHECK", message = stopMsg))
                             updateNotification(stopMsg)
                             broadcastStatus(stopMsg, -1f)
+                            cancelFallbackAlarm()
                             stopSelf()
                             return
                         }
-                        val failMsg = "Re-Login fehlgeschlagen (Versuch $consecutiveLoginFailures/$MAX_CONSECUTIVE_LOGIN_FAILURES)"
+                        val failMsg = "Re-Login fehlgeschlagen (Versuch $consecutiveLoginFailures; Verbindungsfehler $connectionFailures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
                         Log.w(TAG, failMsg)
                         logDao.insert(LogEntry(type = "CHECK", message = failMsg))
                         updateNotification(failMsg)
@@ -286,6 +314,7 @@ class MonitorService : Service() {
 
                 // Erfolgreicher Abruf -> Session lebt, Counter reset
                 consecutiveLoginFailures = 0
+                clearConnectionFailures()
 
                 val remainingStr = "%.1f".format(status.remainingMb)
                 val msg = "Verbleibend: $remainingStr MB"
@@ -354,6 +383,29 @@ class MonitorService : Service() {
             null
         }
     }
+
+    private fun monitorState() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+
+    private fun isConnectionPaused(): Boolean =
+        monitorState().getBoolean(PREF_PAUSED_AFTER_FAILURES, false)
+
+    private fun recordConnectionFailure(): Int {
+        val failures = monitorState().getInt(PREF_CONNECTION_FAILURES, 0) + 1
+        monitorState().edit()
+            .putInt(PREF_CONNECTION_FAILURES, failures)
+            .putBoolean(PREF_PAUSED_AFTER_FAILURES, failures >= MAX_CONSECUTIVE_CONNECTION_FAILURES)
+            .apply()
+        return failures
+    }
+
+    private fun clearConnectionFailures() {
+        monitorState().edit()
+            .putInt(PREF_CONNECTION_FAILURES, 0)
+            .putBoolean(PREF_PAUSED_AFTER_FAILURES, false)
+            .apply()
+    }
+
+    private fun clearConnectionPause() = clearConnectionFailures()
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
