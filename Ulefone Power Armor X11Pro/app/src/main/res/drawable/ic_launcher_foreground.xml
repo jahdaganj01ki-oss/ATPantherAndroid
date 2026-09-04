@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="center" android:width="48dp" android:height="48dp">
+        <vector android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+            <!-- Panther paw outline -->
+            <path
+                android:pathData="M24,38 C24,38 16,36 14,30 C12,24 14,18 18,16 C20,15 22,16 23,18 L24,20 L25,18 C26,16 28,15 30,16 C34,18 36,24 34,30 C32,36 24,38 24,38Z"
+                android:fillColor="#1565C0" />
+            <!-- Paw pads -->
+            <path android:pathData="M18,22 C18,20.5 19.5,19 21,19 C22.5,19 23,20.5 22.5,22 C22,23.5 20,24 19,23 C18.5,22.5 18,23 18,22Z" android:fillColor="#BBDEFB"/>
+            <path android:pathData="M30,22 C30,20.5 28.5,19 27,19 C25.5,19 25,20.5 25.5,22 C26,23.5 28,24 29,23 C29.5,22.5 30,23 30,22Z" android:fillColor="#BBDEFB"/>
+            <path android:pathData="M22,27 C22,25.5 23,24 24.5,24 C26,24 27,25.5 26.5,27 C26,28.5 24,29 23,28.5 C22.5,28 22,28 22,27Z" android:fillColor="#BBDEFB"/>
+        </vector>
+    </item>
+</layer-list>
