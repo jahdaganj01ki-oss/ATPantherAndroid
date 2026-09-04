@@ -12,11 +12,6 @@ local.properties
 /app/release
 *.apk
 
-# Windows port build output
-/windows/out
-/windows/AT.Panther/bin
-/windows/AT.Panther/obj
-
 # X11Pro device variant build output (Eigenes Gradle-Projekt im Repo)
 /Ulefone Power Armor X11Pro/.gradle
 /Ulefone Power Armor X11Pro/app/build
