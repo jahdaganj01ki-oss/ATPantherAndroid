@@ -1,6 +1,6 @@
 # AT Panther – ALDI Talk Auto-Refill
 
-Monorepo mit **zwei Android-Varianten** von AT Panther: eine App, die das
+Monorepo mit **drei Android-Varianten** von AT Panther: eine App, die das
 ALDI-Talk-Datenvolumen überwacht und automatisch **1 GB** nachbucht, sobald der
 Restbestand unter die eingestellte Schwelle fällt (Standard: **850 MB**,
 Prüfintervall standardmäßig 60 Sekunden).
@@ -11,6 +11,7 @@ Prüfintervall standardmäßig 60 Sekunden).
 |---|---|---|---|
 | `app/` + Root-Gradle-Projekt | **Android-App** (Basisversion) | `android.yml`, `build.yml` | `AT-Panther-debug-apk` bzw. `ATPanther-debug` |
 | [`Ulefone Power Armor X11Pro/`](Ulefone%20Power%20Armor%20X11Pro/README.md) | **Android-Gerätevariante** fürs Ulefone Power Armor X11Pro (Android 12, Helio G25) – mit Freeze-Fixes + monochromem Design | `x11pro.yml` | `AT-Panther-X11Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
+| [`Redmi Note 9 Pro/`](Redmi%20Note%209%20Pro/README.md) | **Android-Gerätevariante** fürs Xiaomi Redmi Note 9 Pro (Android 11, MIUI, Snapdragon 720G) – Freeze-Fixes + monochromes Design + MIUI-Akku-Anleitung | `redmi-note-9-pro.yml` | `AT-Panther-RedmiNote9Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
 
 Details, Build-Anleitungen und gerätespezifische Hinweise stehen in der
 README des jeweiligen Ordners.
@@ -23,7 +24,7 @@ README des jeweiligen Ordners.
 - 📋 Verlauf/Log aller Prüfungen und Buchungen, Export als Textdatei
 - ⚙️ Einstellbare Schwelle (Standard 850 MB) und Prüfintervall (Standard 60 s)
 - 🌑 Dark-Theme – Root-App: schwarz mit violetten Akzenten;
-  X11Pro-Variante: monochrom (nur Schwarz/Weiß/Grau)
+  X11Pro-/Redmi-Variante: monochrom (nur Schwarz/Weiß/Grau)
 - 🔁 Auto-Re-Login bei abgelaufener Session (max. 5 Fehlversuche in Folge)
 - 🔄 AlarmManager-Fallback + START_STICKY, damit der Monitor das System- kill
   überlebt (X11Pro zusätzlich mit WakeLock-Guard)
@@ -37,7 +38,7 @@ Einzelbenutzer-Gerät akzeptabel, aber bewusst wissen.
 
 ## Builds via GitHub Actions
 
-Die drei Workflows bauen bei Push auf `main`/`master` (teilweise
+Die vier Workflows bauen bei Push auf `main`/`master` (teilweise
 pfadgefiltert) und per manuellem `workflow_dispatch`:
 
 | Workflow | Baut | Ergebnis |
@@ -45,23 +46,28 @@ pfadgefiltert) und per manuellem `workflow_dispatch`:
 | `android.yml` | Root-App | `app-debug.apk` (Artifact `AT-Panther-debug-apk`) |
 | `build.yml` | Root-App | `app-debug.apk` (Artifact `ATPanther-debug`) |
 | `x11pro.yml` | X11Pro-Variante | **`AT Panther.apk`** (Artifact `AT-Panther-X11Pro-debug-apk`) |
+| `redmi-note-9-pro.yml` | Redmi-Note-9-Pro-Variante | **`AT Panther.apk`** (Artifact `AT-Panther-RedmiNote9Pro-debug-apk`) |
 
 Die fertigen APKs liegen im Tab **Actions → jeweiligen Run → Artifacts**.
 
 ## Lokal bauen
 
-**Android (Root oder X11Pro-Variante):**
+**Android (Root oder Gerätevarianten):**
 ```powershell
 .\gradlew.bat assembleDebug                 # Root-App
-cd "Ulefone Power Armor X11Pro"; .\gradlew.bat assembleDebug   # Gerätevariante
+cd "Ulefone Power Armor X11Pro"; .\gradlew.bat assembleDebug   # X11Pro-Variante
+cd "Redmi Note 9 Pro"; .\gradlew.bat assembleDebug             # Redmi-Variante
 ```
 
 ## Hinweise
 
-- Die **X11Pro-Variante installiert sich parallel** zur Root-App (eigene
-  `applicationId` `com.alditalk.panther.x11pro`) – beide können gleichzeitig
-  auf dem Gerät sein. Die Varianten-README beschreibt zusätzlich die
-  Freeze-Fixes und die empfohlenen Akku-Einstellungen fürs Ulefone.
+- Die **Gerätevarianten installieren sich parallel** zur Root-App und
+  zueinander (eigene `applicationId` pro Variante:
+  `com.alditalk.panther.x11pro`, `com.alditalk.panther.redminote9pro`) –
+  mehrere können gleichzeitig auf dem Gerät sein. Die Varianten-READMEs
+  beschreiben zusätzlich die Freeze-Fixes sowie die empfohlenen
+  Akku-Einstellungen (Ulefone: Akku-Optimierung; Redmi: MIUI-Autostart,
+  „Keine Einschränkungen", App-Sperre im Recents-Screen).
 - CI-Debug-Builds werden **pro Lauf neu signiert** (generierter Debug-Key):
   vor einer Update-Installation die alte App deinstallieren – oder eigene
   Keystore-Secrets hinterlegen (nur X11Pro-Workflow unterstützt das aktuell).

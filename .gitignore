@@ -16,3 +16,8 @@ local.properties
 /Ulefone Power Armor X11Pro/.gradle
 /Ulefone Power Armor X11Pro/app/build
 /Ulefone Power Armor X11Pro/release.keystore
+
+# Redmi Note 9 Pro device variant build output (Eigenes Gradle-Projekt im Repo)
+/Redmi Note 9 Pro/.gradle
+/Redmi Note 9 Pro/app/build
+/Redmi Note 9 Pro/release.keystore

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Monochromes Theme (Gerätevariante, wie X11Pro):
+      Ausschliesslich Schwarz/Weiss/Grau. Dunkler Hintergrund, helle Schrift.
+      Keine bunten Akzente – violette/blueaetige Farben vollstaendig entfernt.
+    -->
+    <color name="primary">#FFFFFF</color>            <!-- Weiss – gefuellte Buttons/Akzente -->
+    <color name="primary_dark">#6E6E6E</color>       <!-- Mittelgrau (Primary-Variante) -->
+    <color name="accent">#E0E0E0</color>             <!-- Hellgrau – Titel-/Akzenttext -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+
+    <!-- Theme-Oberflächen -->
+    <color name="bg_black">#000000</color>           <!-- echter Schwarz-Hintergrund -->
+    <color name="card_bg">#141414</color>            <!-- dunkelgraue Kartenfläche -->
+    <color name="card_bg_alt">#1F1F1F</color>        <!-- alternative Kartenfläche -->
+    <color name="text_primary">#FFFFFF</color>       <!-- heller Haupttext auf Schwarz -->
+    <color name="text_secondary">#B0B0B0</color>     <!-- Hellgrau – Labels/Hinweise -->
+
+    <!-- Statusfarben – ebenfalls grau-skaliert (keine Buntfarben) -->
+    <color name="status_ok">#B0B0B0</color>
+    <color name="status_warn">#D9D9D9</color>
+    <color name="status_err">#FFFFFF</color>
+</resources>
