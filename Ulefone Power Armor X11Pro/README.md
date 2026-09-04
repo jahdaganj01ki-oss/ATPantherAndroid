@@ -13,7 +13,8 @@ installiert sein.
 ### GitHub Actions
 Der Workflow `.github/workflows/x11pro.yml` baut bei jedem Push auf `main`/`master`,
 der den Ordner `Ulefone Power Armor X11Pro/` berührt, automatisch ein APK und
-lädt es als Artifact **AT-Panther-X11Pro-debug-apk** hoch.
+lädt es als Artifact **AT-Panther-X11Pro-debug-apk** hoch. Die APK-Datei im
+Artifact heißt **`AT Panther.apk`** (nicht `app-debug.apk`).
 
 Optionales signiertes Release: Repo-Secrets `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` setzen.
@@ -42,6 +43,12 @@ Muster „Freeze nach längerer Laufzeit / bei Drehen / beim Wiederaufnehmen".
 
 ## Geräte-Konfiguration
 
+- **Monochromes Theme**: ausschließliches Schwarz/Weiß/Grau – schwarzer
+  Hintergrund (`#000000`), helle Schrift (`#FFFFFF`/`#B0B0B0`), dunkelgraue
+  Karten (`#141414`), weiße Buttons mit schwarzer Schrift, grau-skalierte
+  Statusfarben. Keine Buntakzente (Violett/Blau/Grün/Orange/Rot entfernt).
+- **Monochromes App-Icon**: schwarzer Grund, weiße Pfoten-Silhouette
+  (`values/colors.xml`, `values/ic_launcher_background.xml`, `drawable/ic_launcher_foreground.xml`)
 - `abiFilters`: `arm64-v8a`, `armeabi-v7a` (Helio G25 ist ARM) – schlanke APK
 - `resConfigs("de","en")` – weniger Ressourcen-Auflösung
 - `applicationId`: `com.alditalk.panther.x11pro` (Debug: `...x11pro.debug`)
