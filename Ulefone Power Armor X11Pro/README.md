@@ -41,6 +41,24 @@ cd "Ulefone Power Armor X11Pro"
 Fix #1 + #2 sind die wahrscheinlichsten Auslöser für das von dir beobachtete
 Muster „Freeze nach längerer Laufzeit / bei Drehen / beim Wiederaufnehmen".
 
+## Schutz vor Account-Sperre (Login-Pause)
+
+Scheitern **3 Verbindungs-/Login-Versuche hintereinander** (oder 5
+erfolgreiche Re-Logins ohne erfolgreiche Datenafrage), stoppt der Monitor
+**vollständig automatisch**:
+
+- ⛔ **Hohe Alarm-Benachrichtigung** „AT Panther pausiert" (eigener Kanal
+  „Monitor-Alarme") – sie bleibt sichtbar, obwohl der Service gestoppt ist
+- **Kein automatischer Neustart mehr**: Fallback-Wecker ist abgebrochen,
+  Boot-Start wird blockiert, und auch Netzwerk-Exceptions zählen jetzt als
+  fehlgeschlagene Versuche (vorher lief der Loop bei WLAN-/DNS-Problemen
+  endlos weiter)
+- Nach jedem erfolgreichen Re-Login wartet der Loop wieder das normale
+  Intervall – kein Login-Sturm mehr aufs ALDI-Talk-Portal
+- **Fortsetzung nur manuell:** App öffnen → „Start" hebt die Pause auf
+  (Status „Pausiert — Start zum Fortsetzen") → nochmal „Start" startet den
+  Monitor. Der erste Tipp loggt sich bewusst NICHT sofort ein.
+
 ## Geräte-Konfiguration
 
 - **Monochromes Theme**: ausschließliches Schwarz/Weiß/Grau – schwarzer

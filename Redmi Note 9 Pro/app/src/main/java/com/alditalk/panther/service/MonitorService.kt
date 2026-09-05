@@ -33,8 +33,18 @@ class MonitorService : Service() {
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "at_panther_monitor"
         private const val NOTIFICATION_ID = 1
+
+        // Aparte Alarm-Kanal/-ID: Die Pause-Meldung muss das Service-Stop
+        // ueberleben (die FGS-Notification verschwindet mit stopSelf()).
+        private const val CHANNEL_ID_ALERTS = "at_panther_alerts"
+        private const val NOTIFICATION_ID_ALERT = 2
         private const val MAX_CONSECUTIVE_CONNECTION_FAILURES = 3
-        private const val MAX_CONSECUTIVE_LOGIN_FAILURES = 5
+
+        // Schutz vor Account-Sperre: pausiert auch den Fall "Login klappt,
+        // aber die Datenafrage danach wiederholt fehlschlaegt" – ohne Cap
+        // wuerde sonst bei jedem Schleifendurchlauf eine komplette
+        // Login-Kette aufs Portal feuern.
+        private const val MAX_RELOGINS_WITHOUT_POLL = 5
         // Freeze-Fix: harte Obergrenze fuer die Log-Tabelle
         private const val MAX_LOG_ROWS = 5000
         private const val PREFS_NAME = "at_panther_monitor_state"
@@ -79,11 +89,13 @@ class MonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        createAlertChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             cancelFallbackAlarm()
+            cancelPausedAlert()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -91,6 +103,7 @@ class MonitorService : Service() {
 
         if (intent?.action == ACTION_RESET_CONNECTION_PAUSE) {
             clearConnectionPause()
+            cancelPausedAlert()
             updateNotification("Verbindungspause aufgehoben — starte neu...")
             stopSelf()
             return START_NOT_STICKY
@@ -117,6 +130,8 @@ class MonitorService : Service() {
 
         // Foreground-Status direkt sichern – sonst crasht startForegroundService
         startForeground(NOTIFICATION_ID, buildNotification("Starte Monitor..."))
+        // Evtl. noch sichtbare Pause-Alarm-Meldung aus dem letzten Lauf raeumen.
+        cancelPausedAlert()
 
         // Service-Laufparameter für AlarmManager-Restart merken
         scheduleFallbackAlarm(lastIntervalSec)
@@ -292,17 +307,27 @@ class MonitorService : Service() {
         broadcastStatus("Anmelden...", -1f)
 
         var session = performLogin(phone, password)
+        var reloginsWithoutPoll = 0
         if (session == null) {
             val failures = recordConnectionFailure()
-            val msg = if (failures >= MAX_CONSECUTIVE_CONNECTION_FAILURES) {
-                "⛔ Verbindung pausiert: $failures Fehler — bitte Monitor manuell neu starten"
-            } else {
-                "Login fehlgeschlagen (Verbindungsfehler $failures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
+            if (failures >= MAX_CONSECUTIVE_CONNECTION_FAILURES) {
+                val stopMsg = "⛔ Verbindung pausiert: $failures Fehler — bitte Monitor manuell neu starten"
+                Log.e(TAG, stopMsg)
+                logDao.insert(LogEntry(type = "CHECK", message = stopMsg))
+                updateNotification(stopMsg)
+                broadcastStatus(stopMsg, -1f)
+                // Persistente Pause: Alarm gecancelt, Boot-Restart blockiert,
+                // Alarm-Benachrichtigung bleibt. Fortsetzung nur manuell.
+                pauseAfterConnectionFailures()
+                return
             }
+            val msg = "Login fehlgeschlagen (Verbindungsfehler $failures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
             Log.e(TAG, msg)
             logDao.insert(LogEntry(type = "CHECK", message = msg))
             updateNotification(msg)
             broadcastStatus(msg, -1f)
+            // Service stoppen – der geplante Fallback-Alarm startet ihn im
+            // naechsten Intervall erneut (Zaehler bleibt in Prefs erhalten).
             stopSelf()
             return
         }
@@ -339,6 +364,20 @@ class MonitorService : Service() {
                     session = performLogin(phone, password)
                     if (session != null) {
                         consecutiveLoginFailures = 0
+                        reloginsWithoutPoll++
+                        // Endlosschleifen-Schutz: Klappt der Login zwar, aber die
+                        // Datenafrage weiterhin nicht – ohne Cap wuerde hier
+                        // jede Iteration eine komplette Login-Kette aufs Portal
+                        // feuern => temporaere Account-Sperre.
+                        if (reloginsWithoutPoll >= MAX_RELOGINS_WITHOUT_POLL) {
+                            val stopMsg = "⛔ $reloginsWithoutPoll Re-Logins ohne erfolgreiche Abfrage — Monitor pausiert, bitte manuell neu starten"
+                            Log.e(TAG, stopMsg)
+                            logDao.insert(LogEntry(type = "CHECK", message = stopMsg))
+                            updateNotification(stopMsg)
+                            broadcastStatus(stopMsg, -1f)
+                            pauseAfterConnectionFailures()
+                            return
+                        }
                         clearConnectionFailures()
                         api = session.first
                         contractId = session.second
@@ -346,7 +385,9 @@ class MonitorService : Service() {
                         logDao.insert(LogEntry(type = "CHECK", message = "Re-Login erfolgreich"))
                         updateNotification("Re-Login erfolgreich")
                         broadcastStatus("Re-Login erfolgreich", -1f)
-                        // Direkt weiter zum naechsten Abruf, nicht warten
+                        // Erst das normale Intervall abwarten, dann erneut abfragen –
+                        // sonst feuern Login-Ketten ohne Pause aufs Portal.
+                        delay(intervalSec * 1000L)
                         continue
                     } else {
                         consecutiveLoginFailures++
@@ -357,8 +398,7 @@ class MonitorService : Service() {
                             logDao.insert(LogEntry(type = "CHECK", message = stopMsg))
                             updateNotification(stopMsg)
                             broadcastStatus(stopMsg, -1f)
-                            cancelFallbackAlarm()
-                            stopSelf()
+                            pauseAfterConnectionFailures()
                             return
                         }
                         val failMsg = "Re-Login fehlgeschlagen (Versuch $consecutiveLoginFailures; Verbindungsfehler $connectionFailures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
@@ -373,6 +413,7 @@ class MonitorService : Service() {
 
                 // Erfolgreicher Abruf -> Session lebt, Counter reset
                 consecutiveLoginFailures = 0
+                reloginsWithoutPoll = 0
                 clearConnectionFailures()
 
                 val remainingStr = "%.1f".format(status.remainingMb)
@@ -404,7 +445,20 @@ class MonitorService : Service() {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Monitor-Fehler", e)
-                val errMsg = "Fehler: ${e.message?.take(80)}"
+                // Netzwerk-/Laufzeitfehler zaehlen ebenfalls als
+                // Verbindungsfehler – sonst laeuft der Retry-Loop bei
+                // WLAN-/DNS-Problemen endlos weiter (kein null-Pfad).
+                val failures = recordConnectionFailure()
+                if (failures >= MAX_CONSECUTIVE_CONNECTION_FAILURES) {
+                    val stopMsg = "⛔ Verbindung pausiert: $failures Fehler — bitte Monitor manuell neu starten"
+                    Log.e(TAG, stopMsg)
+                    logDao.insert(LogEntry(type = "CHECK", message = stopMsg))
+                    updateNotification(stopMsg)
+                    broadcastStatus(stopMsg, -1f)
+                    pauseAfterConnectionFailures()
+                    return
+                }
+                val errMsg = "Fehler: ${e.message?.take(80)} (Verbindungsfehler $failures/$MAX_CONSECUTIVE_CONNECTION_FAILURES)"
                 logDao.insert(LogEntry(type = "CHECK", message = errMsg))
                 updateNotification(errMsg)
                 broadcastStatus(errMsg, -1f)
@@ -466,6 +520,63 @@ class MonitorService : Service() {
 
     private fun clearConnectionPause() = clearConnectionFailures()
 
+    /**
+     * Endgueltige Pause nach [MAX_CONSECUTIVE_CONNECTION_FAILURES] fehlgeschlagenen
+     * Verbindungs-/Login-Versuchen hintereinander (oder nach dem Re-Login-Cap):
+     *  - Pause-Flag persistiert in Prefs (blockiert Fallback-Alarm & Boot-Restart,
+     *    siehe [MonitorWakeReceiver])
+     *  - Fallback-Wecker wird gecancelt – KEIN automatischer Neustart mehr
+     *  - Aparte High-Priority-Benachrichtigung (ID 2), die das Service-Stop
+     *    ueberlebt (die FGS-Notification verschwindet mit stopSelf())
+     *  - Service-Stop; Fortsetzung nur durch manuellen Start in der App
+     */
+    private fun pauseAfterConnectionFailures() {
+        cancelFallbackAlarm()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        showPausedAlert()
+        stopSelf()
+    }
+
+    private fun showPausedAlert() {
+        try {
+            val contentIntent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 1, contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
+                .setContentTitle("AT Panther pausiert")
+                .setContentText("Login/Verbindung 3x fehlgeschlagen — Automatik gestoppt")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "Login/Verbindung ist 3x hintereinander fehlgeschlagen — " +
+                            "der Monitor versucht es NICHT weiter automatisch. " +
+                            "Zum Fortsetzen App öffnen und Monitor neu starten."
+                    )
+                )
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setColor(getColor(R.color.primary))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID_ALERT, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "Pause-Benachrichtigung fehlgeschlagen", e)
+        }
+    }
+
+    private fun cancelPausedAlert() {
+        try {
+            getSystemService(NotificationManager::class.java)
+                .cancel(NOTIFICATION_ID_ALERT)
+        } catch (_: Exception) {
+            // ignore
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -474,6 +585,19 @@ class MonitorService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = getString(R.string.channel_description)
+            }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+    }
+
+    private fun createAlertChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID_ALERTS,
+                getString(R.string.channel_alerts_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = getString(R.string.channel_alerts_description)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

@@ -15,8 +15,8 @@ android {
         applicationId = "com.alditalk.panther.redminote9pro"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0-redmi9pro"
+        versionCode = 2
+        versionName = "1.1-redmi9pro"
 
         // Redmi Note 9 Pro: Snapdragon 720G ist 64-Bit-ARM – arm64-v8a +
         // armeabi-v7a reichen; schlanke APK ohne x86-Emulatoren-ABIs.

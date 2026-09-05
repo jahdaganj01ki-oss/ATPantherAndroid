@@ -339,15 +339,21 @@ class MainActivity : AppCompatActivity() {
     private fun startMonitor() {
         val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
         if (state.getBoolean("paused_after_connection_failures", false)) {
-            Toast.makeText(
-                this,
-                "⛔ Verbindung pausiert nach 3 Fehlern. Tippe erneut auf Start, um es manuell wieder zu versuchen.",
-                Toast.LENGTH_LONG
-            ).show()
+            // Erster Start-Tipp hebt die Pause NUR auf – der Monitor startet
+            // erst mit dem zweiten Tipp. Verhindert versehentliche Sofort-
+            // Logins nach einer Pause (Schutz vor Account-Sperre).
             state.edit()
                 .putInt("consecutive_connection_failures", 0)
                 .putBoolean("paused_after_connection_failures", false)
                 .apply()
+            Toast.makeText(
+                this,
+                "⛔ Pause aufgehoben — tippe erneut auf Start, um den Monitor neu zu starten",
+                Toast.LENGTH_LONG
+            ).show()
+            tvStatus.text = "Pausiert — Start zum Fortsetzen"
+            tvStatus.setTextColor(getColor(R.color.status_warn))
+            return
         }
 
         val phone = etPhone.text.toString().trim()

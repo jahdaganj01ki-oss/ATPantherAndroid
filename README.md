@@ -26,6 +26,10 @@ README des jeweiligen Ordners.
 - 🌑 Dark-Theme – Root-App: schwarz mit violetten Akzenten;
   X11Pro-/Redmi-Variante: monochrom (nur Schwarz/Weiß/Grau)
 - 🔁 Auto-Re-Login bei abgelaufener Session (max. 5 Fehlversuche in Folge)
+- ⛔ Login-Schutz (Gerätevarianten): nach 3 fehlgeschlagenen
+  Verbindungs-/Login-Versuchen hintereinander pausiert der Monitor
+  automatisch mit Alarm-Benachrichtigung – kein weiterer automatischer
+  Versuch bis zum manuellen Neustart
 - 🔄 AlarmManager-Fallback + START_STICKY, damit der Monitor das System- kill
   überlebt (X11Pro zusätzlich mit WakeLock-Guard)
 

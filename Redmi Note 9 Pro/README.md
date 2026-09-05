@@ -41,6 +41,28 @@ cd "Redmi Note 9 Pro"
 | 6 | CookieJar nicht thread-safe → sporadische `ConcurrentModificationException` im Login-Loop | `ConcurrentHashMap` + `synchronized` (`OkHttpCookieJar.kt`) |
 | 7 | Activity-Rebuild bei Drehung → komplette View-Hierarchie + RecyclerView neu aufgebaut | `launchMode="singleTask"` + `configChanges` → App-Start/Drehen/Re-Öffnen re-uses die laufende Activity (`AndroidManifest.xml`) |
 
+## Schutz vor Account-Sperre (Login-Pause)
+
+Scheitern **3 Verbindungs-/Login-Versuche hintereinander** (oder 5
+erfolgreiche Re-Logins ohne erfolgreiche Datenafrage), stoppt der Monitor
+**vollständig automatisch**:
+
+- ⛔ **Hohe Alarm-Benachrichtigung** „AT Panther pausiert" (eigener Kanal
+  „Monitor-Alarme") – sie bleibt sichtbar, obwohl der Service gestoppt ist
+- **Kein automatischer Neustart mehr**: Fallback-Wecker ist abgebrochen,
+  Boot-Start wird blockiert, und auch Netzwerk-Exceptions zählen jetzt als
+  fehlgeschlagene Versuche (vorher lief der Loop bei WLAN-/DNS-Problemen
+  endlos weiter)
+- Nach jedem erfolgreichen Re-Login wartet der Loop wieder das normale
+  Intervall – kein Login-Sturm mehr aufs ALDI-Talk-Portal
+- **Fortsetzung nur manuell:** App öffnen → „Start" hebt die Pause auf
+  (Status „Pausiert — Start zum Fortsetzen") → nochmal „Start" startet den
+  Monitor. Der erste Tipp loggt sich bewusst NICHT sofort ein.
+
+Achtung MIUI: Auch den Alarm-Kanal „Monitor-Alarme" in den
+Benachrichtigungs-Einstellungen der App aktivieren (nicht stumm schalten),
+sonst verpufft die Pause-Meldung.
+
 ## Geräte-Konfiguration
 
 - **Monochromes Theme**: ausschließliches Schwarz/Weiß/Grau – schwarzer
