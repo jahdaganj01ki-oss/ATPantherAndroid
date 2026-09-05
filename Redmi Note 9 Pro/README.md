@@ -2,9 +2,10 @@
 
 Eigenstaendiges Gradle-Projekt für das **Xiaomi Redmi Note 9 Pro (global)**
 (Qualcomm Snapdragon 720G, 6 GB RAM, 5020 mAh, Android 11 / MIUI –
-Build `RKQ1.200826.002`). Basiert auf der X11Pro-Variante (`../Ulefone
-Power Armor X11Pro/`) und enthält deren komplette Freeze-Fixes sowie das
-monochrome Design – plus MIUI-spezifische Überlebensmaßnahmen (siehe unten).
+Build `RKQ1.200826.002`). Enthält die kompletten Freeze-Fixes, das monochrome
+Design und die Login-Pause – der App-Code ist seither identisch mit der
+Root-App (`app/`) und der X11Pro-Variante – plus MIUI-spezifische
+Überlebensmaßnahmen (siehe unten).
 
 Die Variante installiert sich als **eigene App**
 (`com.alditalk.panther.redminote9pro`) parallel zur Original-App und zur
@@ -74,7 +75,7 @@ sonst verpufft die Pause-Meldung.
 - `abiFilters`: `arm64-v8a`, `armeabi-v7a` (Snapdragon 720G ist 64-Bit-ARM) – schlanke APK
 - `resConfigs("de","en")` – weniger Ressourcen-Auflösung
 - `applicationId`: `com.alditalk.panther.redminote9pro` (Debug: `...redminote9pro.debug`)
-- `versionName`: `1.0-redmi9pro`
+- `versionName`: `1.1-redmi9pro` (versionCode 2)
 - App-Name: **AT Panther Redmi**
 
 ## Empfohlene Einstellungen auf dem Gerät (MIUI / Android 11) ⚠️ WICHTIG

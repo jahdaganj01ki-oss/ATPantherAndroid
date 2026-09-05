@@ -13,7 +13,9 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.alditalk.panther.data.LogDao
 import com.alditalk.panther.data.LogEntry
@@ -29,7 +31,29 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * DiffUtil-Callback fuer den Log-Verlauf (X11Pro-Freeze-Fix).
+ * LogEntry ist eine data class mit stabilem Primary-Key [LogEntry.id] –
+ * strukturelle Gleichheit reicht damit fuer effizientes Partial-Binding.
+ */
+private val LOG_DIFF = object : DiffUtil.ItemCallback<LogEntry>() {
+    override fun areItemsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean =
+        oldItem.id == newItem.id
+
+    override fun areContentsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean =
+        oldItem == newItem
+}
+
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        /**
+         * X11Pro-Freeze-Fix: UI laedt nur die letzten N Log-Eintraege.
+         * Alles aeltere bleibt in der DB (fuer den Export via Dao-Anfrage mit
+         * vollem Umfang) aber landet nicht mehr komplett im RecyclerView.
+         */
+        private const val LOG_UI_LIMIT = 200
+    }
 
     // Default-Werte
     private val defaultThresholdMb = 850f   // Anforderung 2: Standardwert 850 MB
@@ -128,12 +152,12 @@ class MainActivity : AppCompatActivity() {
             requestIgnoreBatteryOptimizations()
         }
 
-        // Observe log entries
+        // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix)
         val logDao = (application as PantherApp).database.logDao()
         val adapter = LogAdapter()
         rvLog.adapter = adapter
         lifecycleScope.launch {
-            logDao.getAll().collectLatest { entries ->
+            logDao.getRecent(LOG_UI_LIMIT).collectLatest { entries ->
                 currentLogEntries = entries
                 adapter.submitList(entries)
             }
@@ -315,15 +339,21 @@ class MainActivity : AppCompatActivity() {
     private fun startMonitor() {
         val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
         if (state.getBoolean("paused_after_connection_failures", false)) {
-            Toast.makeText(
-                this,
-                "⛔ Verbindung pausiert nach 3 Fehlern. Tippe erneut auf Start, um es manuell wieder zu versuchen.",
-                Toast.LENGTH_LONG
-            ).show()
+            // Erster Start-Tipp hebt die Pause NUR auf – der Monitor startet
+            // erst mit dem zweiten Tipp. Verhindert versehentliche Sofort-
+            // Logins nach einer Pause (Schutz vor Account-Sperre).
             state.edit()
                 .putInt("consecutive_connection_failures", 0)
                 .putBoolean("paused_after_connection_failures", false)
                 .apply()
+            Toast.makeText(
+                this,
+                "⛔ Pause aufgehoben — tippe erneut auf Start, um den Monitor neu zu starten",
+                Toast.LENGTH_LONG
+            ).show()
+            tvStatus.text = "Pausiert — Start zum Fortsetzen"
+            tvStatus.setTextColor(getColor(R.color.status_warn))
+            return
         }
 
         val phone = etPhone.text.toString().trim()
@@ -363,15 +393,16 @@ class MainActivity : AppCompatActivity() {
 
     // ── Log RecyclerView Adapter ──
 
-    inner class LogAdapter : RecyclerView.Adapter<LogAdapter.ViewHolder>() {
-        private val entries = mutableListOf<LogEntry>()
-        private val sdf = SimpleDateFormat("dd.MM HH:mm:ss", Locale.GERMAN)
+    /**
+     * X11Pro-Freeze-Fix: ListAdapter mit DiffUtil statt RecyclerView.Adapter +
+     * notifyDataSetChanged(). Jede neue Log-Zeile (alle 60 s) bindet nur die
+     * tatsaechlich neue Zeile statt die komplette Liste neu zu zeichnen.
+     * Das war die Hauptursache fuer UI-Haenger nach laengerer Laufzeit.
+     */
+    inner class LogAdapter :
+        ListAdapter<LogEntry, LogAdapter.ViewHolder>(LOG_DIFF) {
 
-        fun submitList(list: List<LogEntry>) {
-            entries.clear()
-            entries.addAll(list)
-            notifyDataSetChanged()
-        }
+        private val sdf = SimpleDateFormat("dd.MM HH:mm:ss", Locale.GERMAN)
 
         inner class ViewHolder(val view: android.widget.TextView) : RecyclerView.ViewHolder(view)
 
@@ -381,12 +412,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val entry = entries[position]
+            val entry = getItem(position)
             val time = sdf.format(Date(entry.timestamp))
             val typeIcon = if (entry.type == "BOOKING") "📦" else "📡"
             holder.view.text = "$time  $typeIcon  ${entry.message}"
         }
-
-        override fun getItemCount(): Int = entries.size
     }
 }

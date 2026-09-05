@@ -9,29 +9,33 @@ Prüfintervall standardmäßig 60 Sekunden).
 
 | Ordner | Variante | CI-Workflow | Artifact |
 |---|---|---|---|
-| `app/` + Root-Gradle-Projekt | **Android-App** (Basisversion) | `android.yml`, `build.yml` | `AT-Panther-debug-apk` bzw. `ATPanther-debug` |
+| `app/` + Root-Gradle-Projekt | **Android-App** (Basisversion) – gleicher Funktionsstand wie die Gerätevarianten (Freeze-Fixes, Login-Pause, monochromes Design) | `android.yml`, `build.yml` | `AT-Panther-debug-apk` bzw. `ATPanther-debug` |
 | [`Ulefone Power Armor X11Pro/`](Ulefone%20Power%20Armor%20X11Pro/README.md) | **Android-Gerätevariante** fürs Ulefone Power Armor X11Pro (Android 12, Helio G25) – mit Freeze-Fixes + monochromem Design | `x11pro.yml` | `AT-Panther-X11Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
 | [`Redmi Note 9 Pro/`](Redmi%20Note%209%20Pro/README.md) | **Android-Gerätevariante** fürs Xiaomi Redmi Note 9 Pro (Android 11, MIUI, Snapdragon 720G) – Freeze-Fixes + monochromes Design + MIUI-Akku-Anleitung | `redmi-note-9-pro.yml` | `AT-Panther-RedmiNote9Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
 
 Details, Build-Anleitungen und gerätespezifische Hinweise stehen in der
 README des jeweiligen Ordners.
 
-## Features (beide Varianten)
+## Features (alle Varianten)
 
 - 📡 Hintergrundüberwachung des ALDI-Talk-Datenvolumens (Login über das
   Kundenportal: ForgeRock-PoW → PKCE → Redirect-Kette)
 - ⚡ Automatische 1-GB-Nachbuchung unterhalb der einstellbaren Schwelle
 - 📋 Verlauf/Log aller Prüfungen und Buchungen, Export als Textdatei
 - ⚙️ Einstellbare Schwelle (Standard 850 MB) und Prüfintervall (Standard 60 s)
-- 🌑 Dark-Theme – Root-App: schwarz mit violetten Akzenten;
-  X11Pro-/Redmi-Variante: monochrom (nur Schwarz/Weiß/Grau)
+- 🌑 Monochromes Design (alle Varianten): nur Schwarz/Weiß/Grau –
+  dunkler Hintergrund, helle Schrift, monochromes App-Icon
+- ❄️ Freeze-Fixes: Log-UI auf 200 Einträge begrenzt + DB-Trim auf 5000,
+  ListAdapter/DiffUtil statt `notifyDataSetChanged()`, `singleTask` +
+  `configChanges`, thread-safe CookieJar, sauberes Coroutine-Scope-Handling
 - 🔁 Auto-Re-Login bei abgelaufener Session (max. 5 Fehlversuche in Folge)
-- ⛔ Login-Schutz (Gerätevarianten): nach 3 fehlgeschlagenen
-  Verbindungs-/Login-Versuchen hintereinander pausiert der Monitor
-  automatisch mit Alarm-Benachrichtigung – kein weiterer automatischer
-  Versuch bis zum manuellen Neustart
-- 🔄 AlarmManager-Fallback + START_STICKY, damit der Monitor das System- kill
-  überlebt (X11Pro zusätzlich mit WakeLock-Guard)
+- ⛔ Login-Schutz (alle Varianten): nach 3 fehlgeschlagenen
+  Verbindungs-/Login-Versuchen hintereinander (oder 5 Re-Logins ohne
+  erfolgreiche Datenafrage) pausiert der Monitor automatisch mit
+  Alarm-Benachrichtigung – kein weiterer automatischer Versuch bis zum
+  manuellen Neustart (2× „Start" in der App)
+- 🔄 AlarmManager-Fallback + START_STICKY, damit der Monitor das System-Kill
+  überlebt
 
 ## Speicherung der Zugangsdaten
 
@@ -68,12 +72,16 @@ cd "Redmi Note 9 Pro"; .\gradlew.bat assembleDebug             # Redmi-Variante
 - Die **Gerätevarianten installieren sich parallel** zur Root-App und
   zueinander (eigene `applicationId` pro Variante:
   `com.alditalk.panther.x11pro`, `com.alditalk.panther.redminote9pro`) –
-  mehrere können gleichzeitig auf dem Gerät sein. Die Varianten-READMEs
-  beschreiben zusätzlich die Freeze-Fixes sowie die empfohlenen
-  Akku-Einstellungen (Ulefone: Akku-Optimierung; Redmi: MIUI-Autostart,
-  „Keine Einschränkungen", App-Sperre im Recents-Screen).
+  mehrere können gleichzeitig auf dem Gerät sein. Der App-Code
+  (Kotlin + Ressourcen) ist seit v1.1 in allen drei Varianten identisch;
+  die Root-App unterscheidet sich nur durch `applicationId`
+  `com.alditalk.panther`, App-Name „AT Panther" und universale
+  ABI-/Sprachauswahl. Die Varianten-READMEs beschreiben zusätzlich die
+  empfohlenen Akku-Einstellungen (Ulefone: Akku-Optimierung; Redmi:
+  MIUI-Autostart, „Keine Einschränkungen", App-Sperre im Recents-Screen).
 - CI-Debug-Builds werden **pro Lauf neu signiert** (generierter Debug-Key):
   vor einer Update-Installation die alte App deinstallieren – oder eigene
-  Keystore-Secrets hinterlegen (nur X11Pro-Workflow unterstützt das aktuell).
+  Keystore-Secrets hinterlegen (nur die Gerätevarianten-Workflows
+  unterstützen das aktuell).
 - Die automatische Nachbuchung bitte nur im Rahmen der
   ALDI-Talk-Nutzungsbedingungen verwenden.

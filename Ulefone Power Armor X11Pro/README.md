@@ -1,8 +1,11 @@
 # AT Panther – X11Pro-Variante (Ulefone Power Armor X11Pro)
 
 Eigenstaendiges Gradle-Projekt für das **Ulefone Power Armor X11Pro** (MediaTek
-Helio G25, 4 GB RAM, 64 GB, Android 12, 8150 mAh). Basiert auf dem Root-Projekt
-(`app/`), enthält aber gerätespezifische Optimierungen und Freeze-Fixes.
+Helio G25, 4 GB RAM, 64 GB, Android 12, 8150 mAh). Der App-Code (Freeze-Fixes,
+Login-Pause, monochromes Design) ist identisch mit der Root-App (`app/`, seit
+v1.1 angeglichen) – die Variante unterscheidet sich nur durch ihre eigene
+Identität (`applicationId`, App-Name) und die Geräte-Optimierungen
+(`abiFilters`, `resConfigs`).
 
 Die Variante installiert sich als **eigene App** (`com.alditalk.panther.x11pro`)
 parallel zur Original-App – kein Update-Konflikt, beide können gleichzeitig
@@ -70,7 +73,7 @@ erfolgreiche Re-Logins ohne erfolgreiche Datenafrage), stoppt der Monitor
 - `abiFilters`: `arm64-v8a`, `armeabi-v7a` (Helio G25 ist ARM) – schlanke APK
 - `resConfigs("de","en")` – weniger Ressourcen-Auflösung
 - `applicationId`: `com.alditalk.panther.x11pro` (Debug: `...x11pro.debug`)
-- `versionName`: `1.0-x11pro`
+- `versionName`: `1.1-x11pro` (versionCode 2)
 - App-Name: **AT Panther X11Pro**
 
 ## Empfohlene Einstellungen auf dem Gerät (Android 12 / Ulefone)
