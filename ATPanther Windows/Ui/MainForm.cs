@@ -78,6 +78,7 @@ public sealed class MainForm : Form
         MaximizeBox = false;
         ClientSize = new Size(CardWidth + Margin * 2, 700);
         try { Icon = IconLoader.Load(); } catch { /* Default-Icon */ }
+        Margin = new Padding(0);
 
         BuildLayout();
         LoadCredentials();

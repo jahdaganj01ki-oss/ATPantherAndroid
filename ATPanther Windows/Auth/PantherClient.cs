@@ -70,9 +70,8 @@ public sealed class PantherClient : IDisposable
     {
         AllowAutoRedirect = allowAutoRedirect,
         UseCookies = false,
-        Cookies = null,
         ConnectTimeout = TimeSpan.FromSeconds(30),
-        ReadDataTimeout = TimeSpan.FromSeconds(30),
+        ReadTimeout = TimeSpan.FromSeconds(30),
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
     };
 
