@@ -1,0 +1,35 @@
+name: Build Windows port
+
+on:
+  push:
+    branches: [ main, master ]
+    paths: [ 'windows/**', '.github/workflows/windows.yml' ]
+  pull_request:
+    branches: [ main, master ]
+    paths: [ 'windows/**', '.github/workflows/windows.yml' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build solution
+        run: dotnet build windows/ATPanther.sln -c Release
+
+      - name: Publish single-file exe
+        run: |
+          dotnet publish windows/ATPanther.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ATPanther-Windows
+          path: publish/

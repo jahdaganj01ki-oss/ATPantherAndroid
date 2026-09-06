@@ -21,3 +21,7 @@ local.properties
 /Redmi Note 9 Pro/.gradle
 /Redmi Note 9 Pro/app/build
 /Redmi Note 9 Pro/release.keystore
+
+# Windows-Port (.NET) build output
+windows/**/bin/
+windows/**/obj/
