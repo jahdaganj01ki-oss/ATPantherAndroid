@@ -64,44 +64,7 @@ jobs:
           New-Item -ItemType Directory -Force bundle | Out-Null
           Copy-Item publish/ATPanther.exe bundle/ATPanther.exe
           Copy-Item windows/Diagnose-AT-Panther.bat bundle/Diagnose-AT-Panther.bat
-
-          $readme = @'
-AT Panther fuer Windows - Kurzanleitung
-========================================
-
-1) Diese ZIP-Datei entpacken (z.B. nach C:\ATPanther).
-2) ATPanther.exe per Doppelklick starten.
-3) ALDI-Talk-Rufnummer und Portal-Passwort eingeben,
-   Schwelle (MB) und Pruefintervall (s) ggf. anpassen,
-   dann auf "Start" klicken.
-
-Hinweise
---------
-* .NET ist NICHT erforderlich - die Datei ist eigenstaendig (self-contained).
-* Windows kann beim ersten Start SmartScreen anzeigen:
-  "Weitere Infos" -> "Trotzdem ausfuehren" klicken (keine Signatur vorhanden).
-* Zugangsdaten werden DPAPI-verschluesselt nur fuer dieses Windows-Konto
-  gespeichert (%LocalAppData%\ATPanther).
-* Monitor pausiert nach wiederholten Verbindungsfehlern automatisch -
-  erster Klick auf "Start" hebt die Pause nur auf, zweiter Klick startet.
-* Logs: %LocalAppData%\ATPanther\history.log (Monitor-Verlauf) und
-  diagnostics.log (Start, Abstuerze, Engine-Trace, mit Rotation).
-  Tray-Menue: "Diagnose-Log öffnen" / "Diagnose-Ordner öffnen".
-
-Wenn der Start fehlschlaegt
----------------------------
-* Normaler Absturz (Fenster öffnet sich kurz / Fehlermeldung der App):
-  diagnostics.log aus %LocalAppData%\ATPanther beim Melden mitsenden.
-* "Side-by-Side-Konfiguration ungültig" direkt beim Doppelklick:
-  Das ist ein Windows-Loader-Fehler VOR dem Programmstart – die App
-  selbst konnte dann gar nichts protokollieren. Diagnose-AT-Panther.bat
-  per Rechtsklick als Administrator ausführen, Fehler reproduzieren und
-  aus %LocalAppData%\ATPanther\diagnose die Dateien sysinfo.txt,
-  diagnostics.log und sxstrace.txt mitsenden.
-* Immer den kompletten Ordner aus EINEM Build verwenden und keine
-  Exe-Dateien aus verschiedenen Builds mischen.
-'@
-          Set-Content -Path bundle/LIESMICH.txt -Value $readme -Encoding UTF8
+          Copy-Item windows/LIESMICH.txt bundle/LIESMICH.txt
 
           Compress-Archive -Path bundle/* -DestinationPath ATPanther-win-x64.zip -Force
           Get-Item ATPanther-win-x64.zip | Select-Object Name, Length
