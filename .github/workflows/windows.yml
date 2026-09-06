@@ -24,12 +24,55 @@ jobs:
       - name: Build solution
         run: dotnet build windows/ATPanther.sln -c Release
 
-      - name: Publish single-file exe
+      # Produces exactly one file: publish/ATPanther.exe
+      # (self-contained single file - .NET does NOT need to be installed on the target PC)
+      - name: Publish standalone exe
         run: |
-          dotnet publish windows/ATPanther.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+          dotnet publish windows/ATPanther.Windows -c Release -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=None `
+            -o publish
 
-      - name: Upload artifact
+      # Bundle the exe with a short "how to use" note into one ready-to-run zip.
+      - name: Create download bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force bundle | Out-Null
+          Copy-Item publish/ATPanther.exe bundle/ATPanther.exe
+
+          $readme = @'
+AT Panther fuer Windows - Kurzanleitung
+========================================
+
+1) Diese ZIP-Datei entpacken (z.B. nach C:\ATPanther).
+2) ATPanther.exe per Doppelklick starten.
+3) ALDI-Talk-Rufnummer und Portal-Passwort eingeben,
+   Schwelle (MB) und Pruefintervall (s) ggf. anpassen,
+   dann auf "Start" klicken.
+
+Hinweise
+--------
+* .NET ist NICHT erforderlich - die Datei ist eigenstaendig (self-contained).
+* Windows kann beim ersten Start SmartScreen anzeigen:
+  "Weitere Infos" -> "Trotzdem ausfuehren" klicken (keine Signatur vorhanden).
+* Zugangsdaten werden DPAPI-verschluesselt nur fuer dieses Windows-Konto
+  gespeichert (%LocalAppData%\ATPanther).
+* Monitor pausiert nach wiederholten Verbindungsfehlern automatisch -
+  erster Klick auf "Start" hebt die Pause nur auf, zweiter Klick startet.
+* Logs: %LocalAppData%\ATPanther\history.log
+'@
+          Set-Content -Path bundle/LIESMICH.txt -Value $readme -Encoding UTF8
+
+          Compress-Archive -Path bundle/* -DestinationPath ATPanther-win-x64.zip -Force
+          Get-Item ATPanther-win-x64.zip | Select-Object Name, Length
+
+      - name: Upload artifact (ready-to-run zip)
         uses: actions/upload-artifact@v4
         with:
-          name: ATPanther-Windows
-          path: publish/
+          name: ATPanther-win-x64
+          path: ATPanther-win-x64.zip
+          if-no-files-found: error
