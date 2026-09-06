@@ -77,6 +77,8 @@ public sealed class PantherApp : Form
         MaximizeBox = false;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         TopMost = false;
+        try { Icon = AppIcon.Load(); }
+        catch (Exception ex) { DiagLog.Warn("Icon", "Window fell back to default icon.", ex); }
 
         var panel = new Panel
         {
@@ -278,9 +280,10 @@ public sealed class PantherApp : Form
             Credentials.Store(AppConfig.CredentialIntervalSecondsKey,
                 intervalSeconds.ToString(CultureInfo.InvariantCulture));
         }
-        catch
+        catch (Exception ex)
         {
             // Storing is best-effort — the monitor itself keeps running.
+            DiagLog.Warn("Setup", "Could not store credentials.", ex);
         }
     }
 
@@ -316,9 +319,10 @@ public sealed class PantherApp : Form
                     interval, (int)_intervalBox.Minimum, (int)_intervalBox.Maximum);
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Corrupted/undecryptable state -> keep the default (empty) fields.
+            DiagLog.Warn("Setup", "Could not load saved credentials.", ex);
         }
     }
 

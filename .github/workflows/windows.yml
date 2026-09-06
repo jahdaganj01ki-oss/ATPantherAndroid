@@ -21,6 +21,18 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Check app icon (from PNG source)
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $srcPath = "windows/ATPanther.Windows/assets/app-icon-source.png"
+          $icoPath = "windows/ATPanther.Windows/assets/app.ico"
+          if (!(Test-Path $srcPath)) { throw "Icon source missing: $srcPath" }
+          if (!(Test-Path $icoPath)) { throw "App icon missing: $icoPath (regenerate from $srcPath)" }
+          $ic = New-Object System.Drawing.Icon($icoPath)
+          Write-Host ("Icon OK: {0}x{1}, {2} Bytes" -f $ic.Width, $ic.Height, (Get-Item $icoPath).Length)
+          $ic.Dispose()
+
       - name: Build solution
         run: dotnet build windows/ATPanther.sln -c Release
 
@@ -41,8 +53,17 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          if (!(Test-Path publish/ATPanther.exe)) {
+            Write-Host "Publish content:"
+            Get-ChildItem publish -Recurse | Format-Table Name,Length -AutoSize | Out-String -Width 200 | Write-Host
+            throw "ATPanther.exe missing - refusing to ship a broken bundle (side-by-side risk)."
+          }
+          $info = Get-Item publish/ATPanther.exe
+          $ver = $info.VersionInfo
+          Write-Host ("Exe OK: publish/ATPanther.exe ({0:N0} Bytes), FileVersion={1}, ProductVersion={2}" -f $info.Length, $ver.FileVersion, $ver.ProductVersion)
           New-Item -ItemType Directory -Force bundle | Out-Null
           Copy-Item publish/ATPanther.exe bundle/ATPanther.exe
+          Copy-Item windows/Diagnose-AT-Panther.bat bundle/Diagnose-AT-Panther.bat
 
           $readme = @'
 AT Panther fuer Windows - Kurzanleitung
@@ -63,7 +84,22 @@ Hinweise
   gespeichert (%LocalAppData%\ATPanther).
 * Monitor pausiert nach wiederholten Verbindungsfehlern automatisch -
   erster Klick auf "Start" hebt die Pause nur auf, zweiter Klick startet.
-* Logs: %LocalAppData%\ATPanther\history.log
+* Logs: %LocalAppData%\ATPanther\history.log (Monitor-Verlauf) und
+  diagnostics.log (Start, Abstuerze, Engine-Trace, mit Rotation).
+  Tray-Menue: "Diagnose-Log öffnen" / "Diagnose-Ordner öffnen".
+
+Wenn der Start fehlschlaegt
+---------------------------
+* Normaler Absturz (Fenster öffnet sich kurz / Fehlermeldung der App):
+  diagnostics.log aus %LocalAppData%\ATPanther beim Melden mitsenden.
+* "Side-by-Side-Konfiguration ungültig" direkt beim Doppelklick:
+  Das ist ein Windows-Loader-Fehler VOR dem Programmstart – die App
+  selbst konnte dann gar nichts protokollieren. Diagnose-AT-Panther.bat
+  per Rechtsklick als Administrator ausführen, Fehler reproduzieren und
+  aus %LocalAppData%\ATPanther\diagnose die Dateien sysinfo.txt,
+  diagnostics.log und sxstrace.txt mitsenden.
+* Immer den kompletten Ordner aus EINEM Build verwenden und keine
+  Exe-Dateien aus verschiedenen Builds mischen.
 '@
           Set-Content -Path bundle/LIESMICH.txt -Value $readme -Encoding UTF8
 

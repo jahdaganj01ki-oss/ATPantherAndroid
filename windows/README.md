@@ -43,13 +43,33 @@ windows/
 │   ├── TrayManager.cs             # system tray (show/resume/exit, live tooltip, pause balloon)
 │   ├── Credentials.cs             # DPAPI-protected storage (SharedPreferences port)
 │   ├── AppConfig.cs               # defaults + credential key names
+│   ├── DiagLog.cs                 # file diagnostics log (diagnostics.log + rotation)
+│   ├── AppIcon.cs                 # window/tray icon loader (exe icon + fallback)
 │   ├── SystemSleep.cs             # keep-awake while monitoring (wake-lock counterpart)
 │   ├── CryptoUtils.cs
-│   └── app.manifest
+│   ├── assets/app.ico             # embedded app icon (from assets/app-icon-source.png)
+│   └── app.manifest               # explicit amd64 identity (side-by-side hardening)
+├── Diagnose-AT-Panther.bat  # log + sysinfo + sxstrace collector (loader failures)
 ├── App.config
 ├── ProjectMetadata.json
 └── SourceMapping.cs           # machine-readable manifest Android → Windows mapping
 ```
+
+## Diagnostics & app icon
+
+- **Diagnose-Log:** `%LocalAppData%\ATPanther\diagnostics.log` (rotation 1 MiB × 5)
+  records startup, crashes (UI/AppDomain/task handlers in `Program.cs`), all
+  UI catch-all branches and the monitor trace (start/stop/pause/loop errors).
+  Open via tray menu ("Diagnose-Log öffnen" / "Diagnose-Ordner öffnen").
+- **Loader failures** ("side-by-side configuration is invalid") happen in Windows
+  before any managed code runs: run `windows/Diagnose-AT-Panther.bat` as
+  administrator (sxstrace flow, also bundled in the release ZIP) and attach
+  `sysinfo.txt` + `diagnostics.log` (+ `sxstrace.txt`).
+- **Icon:** `ATPanther.Windows/assets/app.ico` (7 sizes, PNG-compressed) is
+  embedded as `ApplicationIcon` and also feeds the window + tray icon at
+  runtime (`AppIcon.cs`, system-icon fallback). Source:
+  `assets/app-icon-source.png`. Never mix exe files from different builds in
+  one folder.
 
 ## Ported Android constants (do not change without updating the Android side too)
 

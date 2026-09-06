@@ -9,6 +9,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Embedded from windows/ATPanther.Windows/assets/app.ico (generated from
+         the ALDI Talk app icon: assets/app-icon-source.png, 7 sizes). -->
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <AssemblyName>ATPanther</AssemblyName>
     <AssemblyTitle>AT Panther for Windows</AssemblyTitle>
     <AssemblyProduct>AT Panther</AssemblyProduct>

@@ -84,11 +84,15 @@ public sealed class MonitorController : IDisposable
                 _pausedAfterConnectionFailures = false;
                 _connectionFailures = 0;
                 SaveStateLocked();
+                DiagLog.Info("Monitor", "Pause lifted by user (first Start tap).");
                 RaiseStatus("⛔ Pause aufgehoben — tippe erneut auf Start, um den Monitor zu starten", -1f);
                 return false;
             }
 
             StopLoopLocked();
+
+            DiagLog.Info("Monitor",
+                $"Start requested (threshold {thresholdMb} MB, interval {intervalSeconds} s).");
 
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
@@ -108,6 +112,7 @@ public sealed class MonitorController : IDisposable
             StopLoopLocked();
         }
 
+        DiagLog.Info("Monitor", "Stopped by user.");
         RaiseStatus("Monitor gestoppt", -1f);
     }
 
@@ -279,6 +284,7 @@ public sealed class MonitorController : IDisposable
                     var errMsg =
                         $"Fehler: {Truncate(e.Message ?? "", 80)} (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})";
                     AddLog(new LogEntry(DateTime.Now, "CHECK", -1, errMsg));
+                    DiagLog.Warn("Monitor", "Loop iteration failed.", e);
                     RaiseStatus(errMsg, -1f);
                 }
 
@@ -291,6 +297,7 @@ public sealed class MonitorController : IDisposable
         }
         catch (Exception e)
         {
+            DiagLog.Error("Monitor", "Monitor loop terminated with exception.", e);
             RaiseStatus($"Monitor-Fehler: {e.Message}", -1f);
         }
         finally
@@ -328,6 +335,7 @@ public sealed class MonitorController : IDisposable
         }
         catch (Exception e)
         {
+            DiagLog.Warn("Monitor", "performLogin threw.", e);
             RaiseStatus($"Fehler bei performLogin: {e.Message}", -1f);
             return (null, string.Empty);
         }
@@ -364,6 +372,7 @@ public sealed class MonitorController : IDisposable
             SaveStateLocked();
         }
 
+        DiagLog.Warn("Monitor", "Monitor paused: " + message);
         AddLog(new LogEntry(DateTime.Now, "CHECK", -1, message));
         RaiseStatus(message, -1f);
         StopLoopLocked();
