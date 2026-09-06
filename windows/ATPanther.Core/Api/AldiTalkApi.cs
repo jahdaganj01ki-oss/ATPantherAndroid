@@ -24,7 +24,7 @@ public sealed record BookingResult(
 /// 1:1 port of the Android <c>AldiTalkApi</c> (app/src/main/java/.../api/AldiTalkApi.kt).
 /// All three BFF calls rely on the session cookies set during login.
 /// </summary>
-public sealed class AldiTalkApi
+public sealed class AldiTalkApi : IDisposable
 {
     private readonly HttpClient _http;
 
@@ -32,6 +32,9 @@ public sealed class AldiTalkApi
     {
         _http = client;
     }
+
+    /// <summary>Releases the wrapped HTTP client (session cookie container included).</summary>
+    public void Dispose() => _http.Dispose();
 
     private static string BffBase(int bff) =>
         $"{AuthConfig.Portal}/scs/bff/scs-{bff}-{(bff == 207 ? "customer-master-data" : "selfcare-dashboard")}-bff";
@@ -225,12 +228,18 @@ public sealed class AldiTalkApi
 
     private static long OptLong(JsonObject obj, string name)
     {
+        // Mirrors org.json optLong semantics: integral JSON numbers pass through,
+        // fractional numbers are truncated (as if read as double), strings are parsed.
         var node = obj[name];
-        if (node is JsonValue value && value.TryGetValue<long>(out var l)) return l;
-        if (node is JsonValue stringValue && stringValue.TryGetValue<string>(out var s)
-            && long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+        if (node is JsonValue value)
         {
-            return parsed;
+            if (value.TryGetValue<long>(out var l)) return l;
+            if (value.TryGetValue<double>(out var d)) return (long)d;
+            if (value.TryGetValue<string>(out var s)
+                && long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
         }
 
         return 0;

@@ -39,6 +39,33 @@ public sealed class PantherApp : Form
         _monitor.LogAdded += OnMonitorLog;
 
         LoadSavedCredentials();
+        LoadRecentLog();
+        ShowInitialStatus();
+    }
+
+    /// <summary>
+    /// Android loads the last LOG_UI_LIMIT (200) log rows into the UI on start;
+    /// mirror that by pre-filling the log box (oldest first) on launch.
+    /// </summary>
+    private void LoadRecentLog()
+    {
+        var recent = _monitor.RecentLogs(200);
+        for (var i = recent.Count - 1; i >= 0; i--)
+        {
+            AppendLogLine(recent[i].Timestamp, recent[i].Type, recent[i].Message);
+        }
+    }
+
+    private void ShowInitialStatus()
+    {
+        if (_monitor.IsPaused)
+        {
+            SetStatus("⛔ Verbindung pausiert — Start hebt die Pause auf");
+        }
+        else
+        {
+            SetStatus("Bereit");
+        }
     }
 
     private void InitializeForm()
@@ -197,7 +224,11 @@ public sealed class PantherApp : Form
             return;
         }
 
-        SetStatus(text);
+        // Mirror the Android status line: the activity appends the current volume
+        // when the broadcast carries one ("status  (X.X MB)").
+        SetStatus(remainingMb >= 0
+            ? $"{text}  ({remainingMb.ToString("0.0", CultureInfo.InvariantCulture)} MB)"
+            : text);
     }
 
     private void OnMonitorLog(LogEntry entry)
@@ -329,8 +360,10 @@ public sealed class PantherApp : Form
     private static NumericUpDown ThresholdBox() => new()
     {
         Dock = DockStyle.Fill,
-        Minimum = 100m,
+        Minimum = 1m,
         Maximum = 99999m,
+        Increment = 50m,
+        DecimalPlaces = 1,
         Value = AppConfig.DefaultThresholdMb,
         Font = new System.Drawing.Font("Segoe UI", 9f)
     };
@@ -338,8 +371,8 @@ public sealed class PantherApp : Form
     private static NumericUpDown IntervalBox() => new()
     {
         Dock = DockStyle.Fill,
-        Minimum = 10m,
-        Maximum = 3600m,
+        Minimum = 1m,
+        Maximum = 86400m,
         Value = AppConfig.DefaultIntervalSeconds,
         Font = new System.Drawing.Font("Segoe UI", 9f)
     };

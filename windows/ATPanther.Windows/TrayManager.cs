@@ -37,7 +37,23 @@ public sealed class TrayManager : IDisposable
 
     private void OnStatusChanged(string status, float remainingMb)
     {
-        _icon.Text = $"AT Panther - {status}";
+        // Windows tray tooltips are limited to 63 chars.
+        const int maxTooltip = 63;
+        var tooltip = $"AT Panther - {status}";
+        _icon.Text = tooltip.Length <= maxTooltip ? tooltip : tooltip[..maxTooltip];
+
+        // Android shows pause alerts on a separate IMPORTANCE_HIGH channel that
+        // survives the foreground-service stop; mirror that with a balloon tip
+        // whenever the monitor enters the permanent failure pause.
+        if (status.Contains("pausiert", StringComparison.OrdinalIgnoreCase))
+        {
+            _icon.ShowBalloonTip(
+                8000,
+                "AT Panther pausiert",
+                "Login/Verbindung ist wiederholt fehlgeschlagen — der Monitor versucht es " +
+                "nicht weiter automatisch. Zum Fortsetzen App öffnen und Monitor neu starten.",
+                ToolTipIcon.Warning);
+        }
     }
 
     private void ShowForm()

@@ -13,6 +13,17 @@ public sealed record LogEntry(DateTime Timestamp, string Type, double RemainingM
 /// initial login → periodic data check → auto-booking of 1 GB below the threshold,
 /// with the same pause/failure protection (3 consecutive failures or 5 relogins
 /// without a successful poll stop the monitor until the user explicitly starts again).
+///
+/// Android semantics preserved:
+///  - A failed INITIAL login does not kill the monitor: the Android service stops and
+///    the fallback alarm restarts it one interval later (attempt counter persists).
+///    In-process equivalent: retry once per interval until 3 consecutive failures
+///    trigger the permanent pause.
+///  - The Room log store is trimmed every cycle (7-day window + hard cap of
+///    MAX_LOG_ROWS). The Windows port mirrors this for the history file too, so the
+///    file cannot grow without bound.
+///  - While the monitor runs, the system is kept awake (Android partial wake lock;
+///    Windows: SetThreadExecutionState) and released when the loop ends.
 /// </summary>
 public sealed class MonitorController : IDisposable
 {
@@ -21,6 +32,7 @@ public sealed class MonitorController : IDisposable
     private const int MaxReloginsWithoutPoll = 5;
     private const int MaxLogRows = 5000;   // DB hard cap (X11Pro freeze fix)
     private const int SevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    private const int LogUiLimit = 200;    // Android UI limit (MainActivity.LOG_UI_LIMIT)
 
     private readonly object _gate = new();
     private readonly object _logLock = new();
@@ -31,6 +43,7 @@ public sealed class MonitorController : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _monitorTask;
     private bool _disposed;
+    private int _appendsSinceCompact;
 
     private int _connectionFailures;
     private bool _pausedAfterConnectionFailures;
@@ -120,14 +133,25 @@ public sealed class MonitorController : IDisposable
         int intervalSeconds,
         CancellationToken cancellationToken)
     {
+        // Android holds a partial wake lock for as long as the foreground service
+        // lives; release it again on every exit path (stop, pause, dispose).
+        SystemSleep.PreventSleep();
         try
         {
             RaiseStatus("Anmelden...", -1f);
 
-            // Initial login (+ contract-id resolution) — mirrors performLogin().
-            var (api, contractId) = await PerformLoginAsync(phone, password, cancellationToken);
-            if (api == null)
+            // ── Initial login (+ contract-id resolution) ──
+            // Android: a failed initial login stops the service; the fallback alarm
+            // restarts it after one interval and the attempt counter persists in
+            // prefs. Equivalent here: keep retrying once per interval until the
+            // 3-failure pause or a user stop.
+            AldiTalkApi? api = null;
+            var contractId = string.Empty;
+            while (!cancellationToken.IsCancellationRequested)
             {
+                (api, contractId) = await PerformLoginAsync(phone, password, cancellationToken);
+                if (api != null) break;
+
                 var failures = RecordConnectionFailure();
                 if (failures >= MaxConsecutiveConnectionFailures)
                 {
@@ -136,16 +160,14 @@ public sealed class MonitorController : IDisposable
                     return;
                 }
 
-                AddLog(new LogEntry(
-                    DateTime.Now, "CHECK", -1,
-                    $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})"));
-                RaiseStatus(
-                    $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})", -1f);
-                // Android stops the service and lets the fallback alarm retry after the
-                // interval; we retry after the same delay so the failure counter survives.
+                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})";
+                AddLog(new LogEntry(DateTime.Now, "CHECK", -1, msg));
+                RaiseStatus(msg, -1f);
+                // Next attempt after one full interval (Android fallback alarm).
                 await DelayAsync(intervalSeconds, cancellationToken);
-                return;
             }
+
+            if (api == null) return; // stopped while retrying
 
             ClearConnectionFailures();
             AddLog(new LogEntry(DateTime.Now, "CHECK", -1, "Login erfolgreich"));
@@ -182,6 +204,8 @@ public sealed class MonitorController : IDisposable
                             }
 
                             ClearConnectionFailures();
+                            // Dispose the previous session's HTTP client before swapping.
+                            api.Dispose();
                             api = newApi;
                             contractId = newContractId;
                             AddLog(new LogEntry(DateTime.Now, "CHECK", -1, "Re-Login erfolgreich"));
@@ -269,6 +293,10 @@ public sealed class MonitorController : IDisposable
         {
             RaiseStatus($"Monitor-Fehler: {e.Message}", -1f);
         }
+        finally
+        {
+            SystemSleep.AllowSleep();
+        }
     }
 
     /// <summary>Login + contract-id resolution; port of performLogin().</summary>
@@ -292,7 +320,7 @@ public sealed class MonitorController : IDisposable
             if (string.IsNullOrEmpty(contractId))
             {
                 RaiseStatus("Vertrags-ID konnte nicht ermittelt werden", -1f);
-                login.ApiClient.Dispose();
+                api.Dispose();
                 return (null, string.Empty);
             }
 
@@ -360,7 +388,7 @@ public sealed class MonitorController : IDisposable
     }
 
     /// <summary>Newest first, capped at [max] entries (UI loads max 200 in Android).</summary>
-    public IReadOnlyList<LogEntry> RecentLogs(int max = 200)
+    public IReadOnlyList<LogEntry> RecentLogs(int max = LogUiLimit)
     {
         lock (_logLock)
         {
@@ -398,7 +426,7 @@ public sealed class MonitorController : IDisposable
 
     public string BuildExportText()
     {
-        var entries = RecentLogs(200).OrderBy(e => e.Timestamp).ToList();
+        var entries = RecentLogs(LogUiLimit).OrderBy(e => e.Timestamp).ToList();
         if (entries.Count == 0) return string.Empty;
 
         var sb = new StringBuilder();
@@ -419,12 +447,25 @@ public sealed class MonitorController : IDisposable
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Trim mirroring Room deleteOlderThan(7d) + deleteBeyondLimit(5000). Runs once per
+    /// loop cycle; also compacts the persistent history file so it cannot grow forever.
+    /// </summary>
     private void TrimLog()
     {
         var cutoff = DateTime.Now.AddMilliseconds(-SevenDaysMs);
         lock (_logLock)
         {
+            var before = _log.Count;
             _log.RemoveAll(e => e.Timestamp < cutoff);
+            var pruned = _log.Count != before;
+
+            // Compact the file when old rows were pruned or it outgrew the hard cap.
+            if (pruned || _appendsSinceCompact >= MaxLogRows)
+            {
+                RewriteHistoryFileLocked();
+                _appendsSinceCompact = 0;
+            }
         }
     }
 
@@ -455,6 +496,8 @@ public sealed class MonitorController : IDisposable
                 {
                     _log.RemoveAt(0);
                 }
+
+                _appendsSinceCompact = 0;
             }
         }
         catch
@@ -467,18 +510,41 @@ public sealed class MonitorController : IDisposable
     {
         try
         {
-            var ts = entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            var line = string.Join("|",
-                ts,
-                entry.Type,
-                entry.RemainingMb.ToString(CultureInfo.InvariantCulture),
-                entry.Message.Replace('|', ' ').Replace('\n', ' ').Replace('\r', ' '));
-            File.AppendAllText(_logFilePath, line + Environment.NewLine, Encoding.UTF8);
+            File.AppendAllText(_logFilePath, FormatLine(entry) + Environment.NewLine, Encoding.UTF8);
+            _appendsSinceCompact++;
         }
         catch
         {
             // history persistence is best-effort
         }
+    }
+
+    private void RewriteHistoryFileLocked()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            foreach (var e in _log)
+            {
+                sb.AppendLine(FormatLine(e));
+            }
+
+            File.WriteAllText(_logFilePath, sb.ToString(), Encoding.UTF8);
+        }
+        catch
+        {
+            // best-effort compaction
+        }
+    }
+
+    private static string FormatLine(LogEntry entry)
+    {
+        var ts = entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        return string.Join("|",
+            ts,
+            entry.Type,
+            entry.RemainingMb.ToString(CultureInfo.InvariantCulture),
+            entry.Message.Replace('|', ' ').Replace('\n', ' ').Replace('\r', ' '));
     }
 
     // ── State persistence (SharedPreferences port) ──
@@ -531,13 +597,17 @@ public sealed class MonitorController : IDisposable
         if (_cts == null) return;
         _cts.Cancel();
 
-        try
+        // PauseAndStop runs inside the monitor task itself; never Wait on our own task.
+        if (Task.CurrentId != _monitorTask?.Id)
         {
-            _monitorTask?.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (AggregateException)
-        {
-            // cancellation
+            try
+            {
+                _monitorTask?.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (AggregateException)
+            {
+                // cancellation
+            }
         }
 
         _cts.Dispose();

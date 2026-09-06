@@ -12,7 +12,11 @@ The port is not a redesign: it reproduces the Android app's API calls, authentic
   contract-ID resolution (customer-master-data BFF), remaining-data read (selfcare-dashboard offers BFF), and the 1 GB booking (`offer/updateUnlimited`), including BFF correlation/transaction headers.
 - ✅ Monitor loop ported from `app/src/main/java/com/alditalk/panther/service/MonitorService.kt`:
   login → poll → book below threshold, with the same pause protection (3 consecutive connection failures or 5 re-logins without a successful poll stop the monitor until an explicit user start) and bounded 7-day log store.
-- ✅ WinForms UI with system-tray presence, live status/log, threshold + interval, log export.
+  - **Initial-login retry** mirrors the Android alarm semantics: a failed initial login is retried once per interval until the 3-failure pause instead of dying after one attempt.
+  - **Log file trimming**: the persistent history file is compacted every cycle to the 7-day window / 5000-row cap, exactly like the Room `deleteOlderThan` + `deleteBeyondLimit` calls.
+  - **Keep-awake**: the system is kept from sleeping while the monitor runs (Windows `SetThreadExecutionState`, counterpart of the Android partial wake lock) and released on stop/pause.
+  - **Session hygiene**: the HTTP client of a replaced session is disposed on re-login and on loop exit.
+- ✅ WinForms UI with system-tray presence, live status/log (with remaining-volume like the Android status line), threshold + interval, log export, pause alert balloon, single-instance guard.
 - ✅ Credentials and settings stored DPAPI-protected (`DataProtectionScope.CurrentUser`), improving on the Android plaintext preferences.
 - ✅ `dotnet build windows/ATPanther.sln` passes with 0 warnings / 0 errors on .NET SDK 8.
 
@@ -33,12 +37,13 @@ windows/
 │   └── Api/
 │       └── AldiTalkApi.cs         # contract-ID, remaining data, 1 GB booking
 ├── ATPanther.Windows/         # .NET 8 WinForms app
-│   ├── Program.cs
+│   ├── Program.cs                 # entry point + single-instance guard
 │   ├── PantherApp.cs              # main window (phone/password/threshold/interval/log/buttons)
 │   ├── MonitorController.cs       # 1:1 port of MonitorService.monitorLoop()
-│   ├── TrayManager.cs             # system tray (show/resume/exit, live tooltip)
+│   ├── TrayManager.cs             # system tray (show/resume/exit, live tooltip, pause balloon)
 │   ├── Credentials.cs             # DPAPI-protected storage (SharedPreferences port)
 │   ├── AppConfig.cs               # defaults + credential key names
+│   ├── SystemSleep.cs             # keep-awake while monitoring (wake-lock counterpart)
 │   ├── CryptoUtils.cs
 │   └── app.manifest
 ├── App.config
@@ -51,10 +56,13 @@ windows/
 | Android (AuthService.kt / AuthConfig) | Windows (AuthConfig.cs) |
 | --- | --- |
 | `U-621-Varnish` OAuth2 client ID | `ClientId` |
-| Portal host, auth host | `Portal`, `AuthHost` |
-| ForgeRock auth tree path | `AuthPath` |
+| Portal host, auth host | `Portal`, `Auth` |
+| ForgeRock auth tree URL (`.../signin/json/realms/alditalk/authenticate?...`) | `AuthEndpoint` |
+| Redirect URI (`Portal` + `/logged-in-home-page/`) | `RedirectUri` |
 | App User-Agent | `UserAgent` |
 | JSON media type used for the credential step | `JsonMediaType` |
+| Cookie name/domain/path | `CookieName`/`CookieDomain`/`CookiePath` |
+| Max redirect hops (8) / PoW nonce cap (10M) | `MaxRedirectHops` / `MaxPowNonce` |
 | SHA-1 PoW `sha1(work + nonce)` | `PoWSolver` |
 
 ## Architecture (Android → Windows mapping)
