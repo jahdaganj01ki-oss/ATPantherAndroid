@@ -318,6 +318,9 @@ public sealed class MonitorController : IDisposable
             var login = await authenticator.LoginAsync(phone, password, cancellationToken);
             if (!login.Success || login.ApiClient == null)
             {
+                // The detail string (Step N / PoW / OAuth / snippet) is the key
+                // diagnostic: keep it in the file log, not just the status box.
+                DiagLog.Warn("Monitor", "Login attempt failed: " + (login.Error ?? "?") + ".");
                 RaiseStatus($"Login fehlgeschlagen: {login.Error}", -1f);
                 return (null, string.Empty);
             }
@@ -326,6 +329,7 @@ public sealed class MonitorController : IDisposable
             var contractId = await api.ResolveContractIdAsync(phone, cancellationToken);
             if (string.IsNullOrEmpty(contractId))
             {
+                DiagLog.Warn("Monitor", "Login OK, but contract id could not be resolved.");
                 RaiseStatus("Vertrags-ID konnte nicht ermittelt werden", -1f);
                 api.Dispose();
                 return (null, string.Empty);
