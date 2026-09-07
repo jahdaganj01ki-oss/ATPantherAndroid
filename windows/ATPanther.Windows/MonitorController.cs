@@ -315,7 +315,8 @@ public sealed class MonitorController : IDisposable
         try
         {
             var authenticator = new AldiTalkAuthenticator();
-            var login = await authenticator.LoginAsync(phone, password, cancellationToken);
+            var login = await authenticator.LoginAsync(phone, password, cancellationToken,
+                msg => DiagLog.Info("Auth", msg));
             if (!login.Success || login.ApiClient == null)
             {
                 // The detail string (Step N / PoW / OAuth / snippet) is the key

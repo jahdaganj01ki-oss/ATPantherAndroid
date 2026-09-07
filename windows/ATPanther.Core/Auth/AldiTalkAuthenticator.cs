@@ -22,7 +22,8 @@ public sealed class AldiTalkAuthenticator
     public async Task<LoginResult> LoginAsync(
         string phone,
         string password,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<string>? trace = null)
     {
         var cookieContainer = new CookieContainer();
 
@@ -88,6 +89,8 @@ public sealed class AldiTalkAuthenticator
 
             var workMatch = System.Text.RegularExpressions.Regex.Match(powMessage, "var work = \"([^\"]+)\"");
             var diffMatch = System.Text.RegularExpressions.Regex.Match(powMessage, "var difficulty = (\\d+)");
+            trace?.Invoke($"Step1: {callbacks.Count} callbacks, inputs: [{DescribeInputs(data)}], " +
+                          $"work={(workMatch.Success ? "found" : "MISSING")}, difficulty={(diffMatch.Success ? diffMatch.Groups[1].Value : "MISSING")}.");
             if (!workMatch.Success || !diffMatch.Success)
             {
                 return Fail("PoW-Parameter nicht gefunden");
@@ -96,9 +99,11 @@ public sealed class AldiTalkAuthenticator
             var workUuid = workMatch.Groups[1].Value;
             var difficulty = int.Parse(diffMatch.Groups[1].Value);
             var nonce = PoWSolver.Solve(workUuid, difficulty);
+            trace?.Invoke($"PoW solved: difficulty={difficulty}, nonce={nonce}.");
 
             // ── Step 2: Submit credentials — ALL values as strings ──
-            ApplyCredentials(data, nonce, phone, password);
+            var filled = ApplyCredentials(data, nonce, phone, password);
+            trace?.Invoke($"Step2: filled inputs [{string.Join(",", filled)}].");
 
             var step2Request = new HttpRequestMessage(HttpMethod.Post, AuthConfig.AuthEndpoint);
             step2Request.Headers.Accept.ParseAdd("application/json");
@@ -122,6 +127,11 @@ public sealed class AldiTalkAuthenticator
             var tokenId = step2Data["tokenId"]?.GetValue<string>();
             if (string.IsNullOrEmpty(tokenId))
             {
+                // No token: ForgeRock continues the tree (wrong credentials, extra
+                // step, changed callbacks…). The UI only shows a snippet; the full
+                // body goes to the trace so the real reason stays diagnosable.
+                // (Server echo – contains no password.)
+                trace?.Invoke("Step2 NO tokenId, full body: " + step2Body);
                 var snippet = step2Data.ToJsonString();
                 return Fail($"Login fehlgeschlagen: {snippet[..Math.Min(snippet.Length, 300)]}");
             }
@@ -253,9 +263,48 @@ public sealed class AldiTalkAuthenticator
     private static string Q(string key, string value)
         => $"{Uri.EscapeDataString(key)}={Uri.EscapeDataString(value)}";
 
-    private static void ApplyCredentials(JsonObject data, string nonce, string phone, string password)
+    /// <summary>
+    /// Lists every input name across all callbacks ("type:name" pairs) so a
+    /// changed ForgeRock tree (new/renamed inputs) shows up in the trace.
+    /// </summary>
+    private static string DescribeInputs(JsonObject data)
     {
-        if (data["callbacks"] is not JsonArray callbacks) return;
+        try
+        {
+            var parts = new List<string>();
+            if (data["callbacks"] is JsonArray callbacks)
+            {
+                foreach (var cb in callbacks)
+                {
+                    var cbObj = cb?.AsObject();
+                    if (cbObj == null) continue;
+                    var type = cbObj["type"]?.GetValue<string>() ?? "?";
+                    if (cbObj["input"] is JsonArray inputs)
+                    {
+                        foreach (var inp in inputs)
+                        {
+                            var n = inp?.AsObject()?["name"]?.GetValue<string>() ?? "?";
+                            parts.Add($"{type}:{n}");
+                        }
+                    }
+                    else
+                    {
+                        parts.Add(type);
+                    }
+                }
+            }
+            return string.Join(",", parts);
+        }
+        catch
+        {
+            return "?";
+        }
+    }
+
+    private static List<string> ApplyCredentials(JsonObject data, string nonce, string phone, string password)
+    {
+        var filled = new List<string>();
+        if (data["callbacks"] is not JsonArray callbacks) return filled;
 
         foreach (var cb in callbacks)
         {
@@ -280,9 +329,12 @@ public sealed class AldiTalkAuthenticator
                 if (value != null)
                 {
                     inpObj["value"] = value;
+                    filled.Add(name);
                 }
             }
         }
+
+        return filled;
     }
 
     private static void SetUserAgent(HttpClient client)
