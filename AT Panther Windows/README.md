@@ -20,6 +20,13 @@ The port is not a redesign: it reproduces the Android app's API calls, authentic
   The password field has an "Anzeigen" checkbox, and failed logins show the
   cause (Step-N/PoW/OAuth/HTTP detail) directly in the status line and log —
   the full trace stays in `diagnostics.log`.
+- ✅ **Save button** (Android parity): stores phone/password/threshold/interval
+  DPAPI-protected without starting the monitor (Start saves them too).
+- ✅ **Login trace** (ForgeRock diagnosis): `diagnostics.log` records per attempt
+  `Step1: HTTP …/cookies`, `Step2: filled inputs/json-size` and
+  `Step2: HTTP …/callbacks/cookies` plus the full Step-2 body when no `tokenId`
+  is returned — enough to tell wrong credentials apart from a changed portal
+  flow or lost session cookies. Cookie *values* are never logged.
 - ✅ Credentials and settings stored DPAPI-protected (`DataProtectionScope.CurrentUser`), improving on the Android plaintext preferences.
 - ✅ `dotnet build "AT Panther Windows/ATPanther.sln"` passes with 0 warnings / 0 errors on .NET SDK 8.
 - ✅ Paritätsstand: **Ulefone Power Armor X11Pro v1.2** (Dreh-/Freeze-Optimierung),

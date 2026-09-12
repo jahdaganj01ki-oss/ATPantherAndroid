@@ -51,14 +51,19 @@ public sealed class AldiTalkAuthenticator
             step1Request.Content.Headers.ContentType = new MediaTypeHeaderValue(AuthConfig.JsonMediaType);
 
             string step1Body;
+            int step1Status;
             using (var step1Response = await authClient.SendAsync(step1Request, cancellationToken))
             {
+                step1Status = (int)step1Response.StatusCode;
                 step1Body = await step1Response.Content.ReadAsStringAsync(cancellationToken);
                 if (!step1Response.IsSuccessStatusCode)
                 {
-                    return Fail($"Step 1 failed: {(int)step1Response.StatusCode}");
+                    return Fail($"Step 1 failed: {step1Status}");
                 }
             }
+
+            trace?.Invoke($"Step1: HTTP {step1Status}, body={step1Body.Length} chars, " +
+                           $"cookies=[{CookieNames(cookieContainer)}].");
 
             var data = JsonNode.Parse(step1Body)?.AsObject()
                        ?? throw new InvalidOperationException("Step 1: JSON nicht lesbar");
@@ -105,27 +110,32 @@ public sealed class AldiTalkAuthenticator
 
             // ── Step 2: Submit credentials — ALL values as strings ──
             var filled = ApplyCredentials(data, nonce, phone, password);
-            trace?.Invoke($"Step2: filled inputs [{string.Join(",", filled)}].");
+            var step2Json = data.ToJsonString();
+            trace?.Invoke($"Step2: filled inputs [{string.Join(",", filled)}], json={step2Json.Length} chars.");
 
             var step2Request = new HttpRequestMessage(HttpMethod.Post, AuthConfig.AuthEndpoint);
             step2Request.Headers.Accept.ParseAdd("application/json");
-            var step2Json = data.ToJsonString();
             step2Request.Content = new ByteArrayContent(Encoding.UTF8.GetBytes(step2Json));
             step2Request.Content.Headers.ContentType = new MediaTypeHeaderValue(AuthConfig.JsonMediaType);
 
             JsonObject step2Data;
             var step2Body = "";
+            int step2Status;
             using (var step2Response = await authClient.SendAsync(step2Request, cancellationToken))
             {
+                step2Status = (int)step2Response.StatusCode;
+                step2Body = await step2Response.Content.ReadAsStringAsync(cancellationToken);
                 if (!step2Response.IsSuccessStatusCode)
                 {
-                    return Fail($"Step 2 failed: {(int)step2Response.StatusCode}");
+                    trace?.Invoke($"Step2: HTTP {step2Status}, body={step2Body.Length} chars.");
+                    return Fail($"Step 2 failed: {step2Status}");
                 }
-
-                step2Body = await step2Response.Content.ReadAsStringAsync(cancellationToken);
-                step2Data = JsonNode.Parse(step2Body)?.AsObject()
-                            ?? throw new InvalidOperationException("Step 2: JSON nicht lesbar");
             }
+
+            trace?.Invoke($"Step2: HTTP {step2Status}, body={step2Body.Length} chars, " +
+                           $"callbacks=[{DescribeCallbackTypes(step2Body)}], cookies=[{CookieNames(cookieContainer)}].");
+            step2Data = JsonNode.Parse(step2Body)?.AsObject()
+                        ?? throw new InvalidOperationException("Step 2: JSON nicht lesbar");
 
             var tokenId = step2Data["tokenId"]?.GetValue<string>();
             if (string.IsNullOrEmpty(tokenId))
@@ -256,6 +266,51 @@ public sealed class AldiTalkAuthenticator
         }
 
         return new Uri(new Uri(baseUrl), possiblyRelative).ToString();
+    }
+
+    /// <summary>
+    /// Lists the callback types of a ForgeRock response body ("type" per
+    /// callback) so the trace shows which step the server wants next.
+    /// Never includes input values (no credentials in the log).
+    /// </summary>
+    private static string DescribeCallbackTypes(string body)
+    {
+        try
+        {
+            var root = JsonNode.Parse(body)?.AsObject();
+            if (root?["callbacks"] is not JsonArray callbacks) return "none";
+            var parts = new List<string>();
+            foreach (var cb in callbacks)
+            {
+                parts.Add(cb?.AsObject()?["type"]?.GetValue<string>() ?? "?");
+            }
+            return parts.Count == 0 ? "none" : string.Join(",", parts);
+        }
+        catch
+        {
+            return "?";
+        }
+    }
+
+    /// <summary>Session cookie NAMES only (never values) for the trace.</summary>
+    private static string CookieNames(CookieContainer jar)
+    {
+        try
+        {
+            var names = new List<string>();
+            foreach (var uri in new[] { new Uri(AuthConfig.Auth), new Uri(AuthConfig.Portal) })
+            {
+                foreach (System.Net.Cookie c in jar.GetCookies(uri))
+                {
+                    if (!names.Contains(c.Name)) names.Add(c.Name);
+                }
+            }
+            return names.Count == 0 ? "none" : string.Join(",", names);
+        }
+        catch
+        {
+            return "?";
+        }
     }
 
     private static string? RawLocation(HttpResponseMessage response)

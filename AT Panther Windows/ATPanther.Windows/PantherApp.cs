@@ -146,22 +146,27 @@ public sealed class PantherApp : Form
         var buttons = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 3,
+            ColumnCount = 4,
             Margin = new Padding(0, 10, 0, 0)
         };
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
 
         _startButton.Click += (_, _) => OnStart();
         _stopButton.Click += (_, _) => OnStop();
+        var saveButton = Button("Save",
+            System.Drawing.Color.FromArgb(120, 120, 120), System.Drawing.Color.White);
+        saveButton.Click += (_, _) => OnSave();
         var exportButton = Button("Export log",
             System.Drawing.Color.FromArgb(120, 120, 120), System.Drawing.Color.White);
         exportButton.Click += (_, _) => OnExportLog();
 
         buttons.Controls.Add(_startButton, 0, 0);
         buttons.Controls.Add(_stopButton, 1, 0);
-        buttons.Controls.Add(exportButton, 2, 0);
+        buttons.Controls.Add(saveButton, 2, 0);
+        buttons.Controls.Add(exportButton, 3, 0);
 
         grid.Controls.Add(buttons, 0, 7);
         grid.SetColumnSpan(buttons, 2);
@@ -220,6 +225,28 @@ public sealed class PantherApp : Form
     {
         _monitor.Stop();
         SetStatus("Monitor gestoppt");
+    }
+
+    /// <summary>
+    /// Saves phone/password/threshold/interval (DPAPI-protected) without
+    /// starting the monitor — port of the Android "Save credentials" button.
+    /// </summary>
+    private void OnSave()
+    {
+        var phone = _phoneBox.Text.Trim();
+        var password = _passwordBox.Text;
+        var threshold = (double)_thresholdBox.Value;
+        var intervalSeconds = (int)_intervalBox.Value;
+
+        if (SaveCredentials(phone, password, threshold, intervalSeconds))
+        {
+            SetStatus("Login-Daten und Einstellungen gespeichert");
+            AppendLogLine(DateTime.Now, "CHECK", "Einstellungen gespeichert");
+        }
+        else
+        {
+            SetStatus("Speichern fehlgeschlagen (siehe Diagnose-Log)");
+        }
     }
 
     private async void OnExportLog()
@@ -308,7 +335,7 @@ public sealed class PantherApp : Form
 
     // ── DPAPI credential persistence (Android SharedPreferences equivalent) ──
 
-    private void SaveCredentials(string phone, string password, double thresholdMb, int intervalSeconds)
+    private bool SaveCredentials(string phone, string password, double thresholdMb, int intervalSeconds)
     {
         try
         {
@@ -318,11 +345,13 @@ public sealed class PantherApp : Form
                 thresholdMb.ToString(CultureInfo.InvariantCulture));
             Credentials.Store(AppConfig.CredentialIntervalSecondsKey,
                 intervalSeconds.ToString(CultureInfo.InvariantCulture));
+            return true;
         }
         catch (Exception ex)
         {
             // Storing is best-effort — the monitor itself keeps running.
             DiagLog.Warn("Setup", "Could not store credentials.", ex);
+            return false;
         }
     }
 
