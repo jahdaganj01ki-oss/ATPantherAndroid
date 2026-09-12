@@ -141,12 +141,12 @@ public sealed class AldiTalkAuthenticator
             if (string.IsNullOrEmpty(tokenId))
             {
                 // No token: ForgeRock continues the tree (wrong credentials, extra
-                // step, changed callbacks…). The UI only shows a snippet; the full
-                // body goes to the trace so the real reason stays diagnosable.
-                // (Server echo – contains no password.)
+                // step, changed callbacks…). The full body goes to the trace; the
+                // app log/status get the short diagnosis (HTTP + callback types)
+                // so even the Log-Export shows which follow-up step the server
+                // demands. (Server echo – contains no password.)
                 trace?.Invoke("Step2 NO tokenId, full body: " + step2Body);
-                var snippet = step2Data.ToJsonString();
-                return Fail($"Login fehlgeschlagen: {snippet[..Math.Min(snippet.Length, 300)]}");
+                return Fail($"Kein tokenId (HTTP {step2Status}, Callbacks: {DescribeCallbackTypes(step2Body)})");
             }
 
             // Set iPlanetDirectoryPro cookie on the auth domain (Android sets it explicitly).
