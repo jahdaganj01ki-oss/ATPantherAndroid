@@ -112,6 +112,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Statusleiste transparent + helle Icons erzwingen (Theme-Absicherung),
+        // damit die Benachrichtigungszeile normal sichtbar bleibt.
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            .isAppearanceLightStatusBars = false
         setContentView(R.layout.activity_main)
 
         // View binding

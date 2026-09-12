@@ -22,5 +22,16 @@
         <!-- Kartenhintergrund im Black Theme -->
         <item name="colorSurface">@color/card_bg</item>
         <item name="colorOnSurface">@color/text_primary</item>
+
+        <!--
+          Status-/Navigationsleiste: Statusleiste transparent (zeigt den
+          schwarzen Fensterhintergrund), helle Icons – damit die
+          Benachrichtigungszeile normal sichtbar bleibt statt als
+          deckender heller Balken. Navigation schwarz passend zum Theme.
+        -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/bg_black</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

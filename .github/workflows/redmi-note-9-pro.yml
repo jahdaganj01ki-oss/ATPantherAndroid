@@ -67,18 +67,18 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon --stacktrace assembleRelease
 
-      - name: Rename APK (AT Panther.apk)
+      - name: Rename APK (AT Panther Redmi Note 9 Pro.apk)
         run: |
-          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther.apk"
+          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Redmi Note 9 Pro.apk"
           if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            mv app/build/outputs/apk/release/app-release.apk "AT Panther.apk"
+            mv app/build/outputs/apk/release/app-release.apk "AT Panther Redmi Note 9 Pro.apk"
           fi
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: AT-Panther-RedmiNote9Pro-debug-apk
-          path: "Redmi Note 9 Pro/AT Panther.apk"
+          path: "Redmi Note 9 Pro/AT Panther Redmi Note 9 Pro.apk"
           retention-days: 14
 
       - name: Upload Release APK
@@ -86,5 +86,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AT-Panther-RedmiNote9Pro-release-apk
-          path: "Redmi Note 9 Pro/AT Panther.apk"
+          path: "Redmi Note 9 Pro/AT Panther Redmi Note 9 Pro.apk"
           retention-days: 14
