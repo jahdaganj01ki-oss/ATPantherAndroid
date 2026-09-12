@@ -27,7 +27,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardElevation="1dp"
             app:cardBackgroundColor="@color/card_bg">
 
             <LinearLayout
@@ -87,7 +87,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardElevation="1dp"
             app:cardBackgroundColor="@color/card_bg">
 
             <LinearLayout
@@ -167,7 +167,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardElevation="1dp"
             app:cardBackgroundColor="@color/card_bg">
 
             <LinearLayout
@@ -200,7 +200,7 @@
                     android:layout_height="wrap_content"
                     android:text="Monitor starten" />
 
-                <!-- Batterie-Whitelist für aggressive EMUI/Huawei-Geräte -->
+                <!-- Batterie-Whitelist für DuraSpeed / Android-12-App-Standby -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnBatteryOpt"
                     style="@style/Widget.Material3.Button.OutlinedButton"
@@ -218,7 +218,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardElevation="1dp"
             app:cardBackgroundColor="@color/card_bg">
 
             <LinearLayout
@@ -259,7 +259,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardCornerRadius="12dp"
-            app:cardElevation="2dp"
+            app:cardElevation="1dp"
             app:cardBackgroundColor="@color/card_bg">
 
             <LinearLayout

@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,7 +13,9 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
@@ -24,6 +27,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
@@ -116,6 +120,14 @@ class MainActivity : AppCompatActivity() {
         rvLog = findViewById(R.id.rvLog)
 
         rvLog.layoutManager = LinearLayoutManager(this)
+        // X11Pro v1.2: feste Größe + keine Change-Animationen – der
+        // DefaultItemAnimator (Fade/Move bei jedem 60-s-Diff) kostet auf der
+        // schwachen GPU des X11Pro pro Poll sichtbare Frames und ruckelt
+        // zusätzlich, wenn während einer Rotation ein Diff reinkommt.
+        // Größerer View-Cache vermeidet Neu-Inflation beim Scrollen.
+        rvLog.setHasFixedSize(true)
+        rvLog.itemAnimator = null
+        rvLog.setItemViewCacheSize(20)
 
         // Anforderung 1: Gespeicherte Login-Daten UND Einstellungen laden
         loadCredentials()
@@ -147,21 +159,41 @@ class MainActivity : AppCompatActivity() {
             createDocumentLauncher.launch("at_panther_log_$timestamp.txt")
         }
 
-        // Anforderung 5: Direkt zum Batterie-Optimierungs-Dialog (EMUI/Huawei)
+        // Anforderung 5: Direkt zum Batterie-Optimierungs-Dialog (X11Pro/DuraSpeed)
         btnBatteryOpt.setOnClickListener {
             requestIgnoreBatteryOptimizations()
         }
 
-        // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix)
+        // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix).
+        // X11Pro v1.2: repeatOnLifecycle(STARTED) statt Dauer-Collect (kein
+        // Diff im Hintergrund) + distinctUntilChanged (kein redundanter
+        // DiffUtil-Durchlauf, wenn der Service nur getrimmt/gelöscht hat).
         val logDao = (application as PantherApp).database.logDao()
         val adapter = LogAdapter()
         rvLog.adapter = adapter
         lifecycleScope.launch {
-            logDao.getRecent(LOG_UI_LIMIT).collectLatest { entries ->
-                currentLogEntries = entries
-                adapter.submitList(entries)
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                logDao.getRecent(LOG_UI_LIMIT)
+                    .distinctUntilChanged()
+                    .collectLatest { entries ->
+                        currentLogEntries = entries
+                        adapter.submitList(entries)
+                    }
             }
         }
+    }
+
+    /**
+     * X11Pro v1.2: Mit configChanges (siehe Manifest) wird die Activity beim
+     * Drehen NICHT neu erzeugt – dieser Callback hält die sichtbare
+     * Scroll-Position stabil, statt die Liste nach dem Re-Layout von oben
+     * zu zeigen (fühlte sich wie ein Hänger an).
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val lm = rvLog.layoutManager as? LinearLayoutManager ?: return
+        val pos = lm.findFirstVisibleItemPosition()
+        rvLog.post { lm.scrollToPosition(pos.coerceAtLeast(0)) }
     }
 
     override fun onResume() {
@@ -254,34 +286,36 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.GERMAN)
-        val sb = StringBuilder()
-        sb.appendLine("AT Panther – Log-Export")
-        sb.appendLine("Erstellt am: ${sdf.format(Date())}")
-        sb.appendLine("Anzahl Einträge: ${entries.size}")
-        sb.appendLine("────────────────────────────────────────")
-        // In der DB (getAll) ist neueste zuerst – im Export aelteste zuerst ausgeben:
-        entries.sortedBy { it.timestamp }.forEach { e ->
-            val time = sdf.format(Date(e.timestamp))
-            val typeIcon = if (e.type == "BOOKING") "📦" else "📡"
-            val remaining = if (e.remainingMb >= 0) "  [${"%.1f".format(e.remainingMb)} MB]" else ""
-            sb.appendLine("$time  $typeIcon  ${e.message}$remaining")
-        }
-
+        // X11Pro v1.2: Sortieren + Formatieren (bis zu 200 Einträge mit
+        // String.format) lief komplett auf dem UI-Thread → sichtbarer Hänger
+        // beim Tippen auf Export auf dem Helio G25. Jetzt alles auf IO,
+        // Toast direkt (lifecycleScope läuft bereits auf Main).
         lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                writeTextToUri(uri, sb.toString())
-            }
-            runOnUiThread {
-                if (ok) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Log exportiert (${entries.size} Einträge)",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    Toast.makeText(this@MainActivity, "Export fehlgeschlagen", Toast.LENGTH_LONG).show()
+            val (ok, count) = withContext(Dispatchers.IO) {
+                val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.GERMAN)
+                val sb = StringBuilder()
+                sb.appendLine("AT Panther – Log-Export")
+                sb.appendLine("Erstellt am: ${sdf.format(Date())}")
+                sb.appendLine("Anzahl Einträge: ${entries.size}")
+                sb.appendLine("────────────────────────────────────────")
+                // In der DB (getRecent) ist neueste zuerst – im Export aelteste zuerst ausgeben:
+                entries.sortedBy { it.timestamp }.forEach { e ->
+                    val time = sdf.format(Date(e.timestamp))
+                    val typeIcon = if (e.type == "BOOKING") "📦" else "📡"
+                    val remaining = if (e.remainingMb >= 0) "  [${"%.1f".format(e.remainingMb)} MB]" else ""
+                    sb.appendLine("$time  $typeIcon  ${e.message}$remaining")
                 }
+                val written = writeTextToUri(uri, sb.toString())
+                written to entries.size
+            }
+            if (ok) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Log exportiert ($count Einträge)",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Export fehlgeschlagen", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -299,12 +333,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ── Batterie-Optimierung / EMUI Whitelist ──
+    // ── Batterie-Optimierung / DuraSpeed-Whitelist (X11Pro) ──
 
     /**
      * Anforderung 5: Oeffnet direkt den Systemdialog, um die App von der
      * Batterie-Optimierung auszunehmen (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).
-     * Empfohlen fuer aggressive EMUI/Huawei-Geraete wie AGS2-L09 (Android 8.0).
+     * Wichtig auf dem X11Pro: Ulefones DuraSpeed + Android-12-App-Standby
+     * beenden Hintergrund-Monitore aggressiv (siehe README).
      */
     private fun requestIgnoreBatteryOptimizations() {
         try {
@@ -398,16 +433,20 @@ class MainActivity : AppCompatActivity() {
      * notifyDataSetChanged(). Jede neue Log-Zeile (alle 60 s) bindet nur die
      * tatsaechlich neue Zeile statt die komplette Liste neu zu zeichnen.
      * Das war die Hauptursache fuer UI-Haenger nach laengerer Laufzeit.
+     *
+     * X11Pro v1.2: keine `inner class` mehr – der implizite Activity-Verweis
+     * hielt die alte Activity-Instanz über Collector-Laufzeiten am Leben.
      */
-    inner class LogAdapter :
+    class LogAdapter :
         ListAdapter<LogEntry, LogAdapter.ViewHolder>(LOG_DIFF) {
 
         private val sdf = SimpleDateFormat("dd.MM HH:mm:ss", Locale.GERMAN)
 
-        inner class ViewHolder(val view: android.widget.TextView) : RecyclerView.ViewHolder(view)
+        class ViewHolder(val view: android.widget.TextView) : RecyclerView.ViewHolder(view)
 
         override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): ViewHolder {
-            val view = layoutInflater.inflate(R.layout.item_log, parent, false) as android.widget.TextView
+            val view = android.view.LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_log, parent, false) as android.widget.TextView
             return ViewHolder(view)
         }
 

@@ -9,10 +9,10 @@ import android.util.Log
 /**
  * Empfangs-Receiver für AlarmManager-Fallback und (optional) Boot-Completed.
  *
- * Anforderung 5 – Hintergrundprozess fuer Huawei AGS2-L09 (EMUI / Android 8):
- * Falls das System den [MonitorService] killt, plant der Service vorab einen
- * AlarmManager-Ping – dieser Receiver startet den Service dann neu ab. Eingebundene
- * Aktionen:
+ * X11Pro-Hintergrundschutz (Ulefone Power Armor X11Pro, Android 12):
+ * Falls DuraSpeed / das System den [MonitorService] killt, plant der Service
+ * vorab einen AlarmManager-Ping – dieser Receiver startet den Service dann
+ * neu ab. Eingebundene Aktionen:
  *   - [ACTION_RESTART_MONITOR]            : expliziter Neustart durch AlarmManager
  *   - Intent.ACTION_BOOT_COMPLETED        : Start nach Reboot, falls der Nutzer vorher
  *                                          aktiv war (Werte kommen aus Prefs)

@@ -40,9 +40,19 @@ cd "Ulefone Power Armor X11Pro"
 | 5 | CoroutineScope im Service nicht geschlossen → Leak bei Stop/Start-Zyklen | Scope als Member, sauber `cancel()` in `onDestroy()` |
 | 6 | CookieJar nicht thread-safe → sporadische `ConcurrentModificationException` im Login-Loop | `ConcurrentHashMap` + `synchronized` (`OkHttpCookieJar.kt`) |
 | 7 | Activity-Rebuild bei Drehung → komplette View-Hierarchie + RecyclerView neu auf dem schwachen Helio G25 | `launchMode="singleTask"` + `configChanges` → App-Start/Drehen/Re-Öffnen re-uses die laufende Activity (`AndroidManifest.xml`) |
+| 8 | Log-DB ohne Index: `ORDER BY timestamp DESC` sortierte bei jedem 60-s-Poll bis zu 5000 Zeilen voll | Index auf `LogEntry.timestamp` (DB v2, `AppDatabase`/`LogEntry.kt`) |
+| 9 | DB-Trim (2 Schreib-Transaktionen) bei jedem Poll → Flow-Requery + DiffUtil-Durchlauf alle 60 s | Trim gedrosselt: Alter nur ~stündlich, Limit nur alle ~10 min und nur bei Bedarf (`MonitorService.kt`, v1.2) |
+| 10 | SHA-1-PoW-Loop (bis 10 Mio Hashes) blockierte einen `Dispatchers.IO`-Thread → Login-Starvation | PoW läuft auf `Dispatchers.Default` (`AuthService.kt`, v1.2) |
+| 11 | Dutzende `Log.e`-Zeilen pro Login (inkl. Body-Dump) → CPU/I-O im Logcat | Trace-Logs auf `Log.d` zurückgestuft (`AuthService.kt`, v1.2) |
+| 12 | `DefaultItemAnimator` animierte jeden 60-s-Diff auf der schwachen GPU → Ruckler, v. a. bei Rotation | `itemAnimator = null` + `setHasFixedSize(true)` + 20er View-Cache (`MainActivity.kt`, v1.2) |
+| 13 | Log-Export baute bis zu 200 formatierte Zeilen auf dem UI-Thread → Hänger beim Tippen | Kompletter Export auf `Dispatchers.IO` (`MainActivity.kt`, v1.2) |
+| 14 | `configChanges` unvollständig → Android 12 konnte beim Drehen trotzdem rebuilden | `smallestScreenSize\|layoutDirection` ergänzt + `onConfigurationChanged()` hält Scroll-Position (v1.2) |
+| 15 | DB wurde synchron in `Application.onCreate` aufgebaut → langsamer Kaltstart | Vorwärmen im Hintergrund-Scope (`PantherApp.kt`, v1.2) |
 
 Fix #1 + #2 sind die wahrscheinlichsten Auslöser für das von dir beobachtete
 Muster „Freeze nach längerer Laufzeit / bei Drehen / beim Wiederaufnehmen".
+Fix #8–#15 (v1.2) adressieren die restlichen Drehen-/Ruckler-Ursachen gezielt
+auf dem Helio G25 des X11Pro.
 
 ## Schutz vor Account-Sperre (Login-Pause)
 
@@ -73,7 +83,7 @@ erfolgreiche Re-Logins ohne erfolgreiche Datenafrage), stoppt der Monitor
 - `abiFilters`: `arm64-v8a`, `armeabi-v7a` (Helio G25 ist ARM) – schlanke APK
 - `resConfigs("de","en")` – weniger Ressourcen-Auflösung
 - `applicationId`: `com.alditalk.panther.x11pro` (Debug: `...x11pro.debug`)
-- `versionName`: `1.1-x11pro` (versionCode 2)
+- `versionName`: `1.2-x11pro` (versionCode 3)
 - App-Name: **AT Panther X11Pro**
 
 ## Empfohlene Einstellungen auf dem Gerät (Android 12 / Ulefone)
@@ -83,4 +93,5 @@ Damit der Monitor zuverlässig läuft:
 1. **Einstellungen → Akku → Akku-Optimierung** → AT Panther X11Pro → *Nicht optimieren*
 2. **Einstellungen → Apps → AT Panther X11Pro → Akku** → *Uneingeschränkt* + Hintergrundaktivität erlauben
 3. In der App: **Batterie-Optimierung ignorieren**-Button nutzen
-4. Falls vorhanden (Android 12): Akku → App-Standby deaktivieren für die App
+4. Falls vorhanden: **DuraSpeed** (Ulefone-Hintergrundmanager) → AT Panther X11Pro zulassen/whitelisten
+5. Falls vorhanden (Android 12): Akku → App-Standby deaktivieren für die App

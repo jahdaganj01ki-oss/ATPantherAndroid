@@ -20,10 +20,10 @@ import kotlinx.coroutines.*
  * Foreground service that monitors ALDI Talk data volume and auto-books 1 GB
  * when remaining data drops below the threshold.
  *
- * Anforderung 5 – Optimierung für Huawei AGS2-L09 (Android 8.0 / EMUI):
+ * X11Pro-Optimierung (Ulefone Power Armor X11Pro, Android 12):
  *  - Läuft als Foreground Service mit permanenter sichtbarer Notification.
  *  - Hält zusätzlich einen PARTIAL_WAKE_LOCK waehrend des Monitor-Loops,
- *    damit EMUI's aggressives Stromspar-Management die CPU nicht abhaengt.
+ *    damit DuraSpeed/Android-12-App-Standby die CPU nicht abhaengt.
  *  - Registriert einen AlarmManager-Fallback, der den Service nach Kill
  *    (z.B. durchs System) erneut startet.
  */
@@ -74,8 +74,8 @@ class MonitorService : Service() {
     private var isRunning = false
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // X11Pro: MediaTek Helio G25 mit nur 4 GB RAM – das System killt Apps
-    // bei Speicherdruck schneller als flagships; ein zweiter Guard-Alarm
+    // X11Pro: Helio G25 mit nur 4 GB RAM – das System killt Apps bei
+    // Speicherdruck schneller als flagships; ein zweiter Guard-Alarm
     // gewaehrleistet, dass der Loop auch nach WakeLock-Timeout oder
     // System-Stop weiterlaeuft. Siehe acquireWakeLock().
     private var wakeLockGuardJob: Job? = null
@@ -152,14 +152,14 @@ class MonitorService : Service() {
         // WakeLock NACH dem Scope aufnehmen – der Guard-Job haengt am Scope.
         acquireWakeLock()
 
-        // EMUI killt den Prozess bei niedrigem Memory gelegentlich –
+        // Ulefones DuraSpeed killt den Prozess bei niedrigem Memory gelegentlich –
         // START_STICKY bittet das System um Neustart.
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Nutzer hat die App aus dem Recents-Stack gewischt – Service
-        // ueber AlarmManager wieder einplanen, damit EMUI sie nicht beendet.
+        // ueber AlarmManager wieder einplanen, damit DuraSpeed sie nicht beendet.
         scheduleFallbackAlarm(lastIntervalSec)
         super.onTaskRemoved(rootIntent)
     }
@@ -248,7 +248,7 @@ class MonitorService : Service() {
 
     /**
      * Plant einen AlarmManager-Ping, der den Service nach Ablauf des Intervalls
-     * erneut startet – selbst wenn EMUI den Job vorher beendet hat.
+     * erneut startet – selbst wenn DuraSpeed den Job vorher beendet hat.
      *
      * Wir richten den PendingIntent gegen [MonitorWakeReceiver] (Broadcast),
      * da Hintergrund-Service-Starts unter Android 8+ (Doze/Standby) Restriktionen
@@ -340,16 +340,26 @@ class MonitorService : Service() {
         logDao.insert(LogEntry(type = "CHECK", message = "Vertrags-ID erkannt: $contractId"))
 
         var consecutiveLoginFailures = 0
+        // X11Pro v1.2: DB-Trim NICHT bei jedem 60-s-Durchlauf (2 Schreib-
+        // Transaktionen pro Poll weckten die DB auf dem eMMC und triggerten
+        // jedes Mal einen Flow-Requery + DiffUtil-Durchlauf in der UI).
+        // Stattdessen: Alter nur ca. stündlich löschen, Limit nur bei Bedarf.
+        var loopCount = 0
 
         while (isRunning && serviceJob?.isActive == true) {
             try {
-                // Clean old entries (keep last 7 days)
-                val sevenDays = System.currentTimeMillis() - 7 * 24 * 3600_000L
-                logDao.deleteOlderThan(sevenDays)
-                // X11Pro-Freeze-Fix: Tabelle hart begrenzen (30 Tage Polling =
-                // ~43000 Zeilen). Ohne Limit wuchs die DB stetig und verlangsamte
-                // jeden Flow-Emit + UI-Bind spuerbar -> App-Haenger.
-                logDao.deleteBeyondLimit(MAX_LOG_ROWS)
+                loopCount++
+                if (loopCount % 60 == 1) {
+                    // ca. 1× pro Stunde: Einträge älter als 7 Tage löschen
+                    val sevenDays = System.currentTimeMillis() - 7 * 24 * 3600_000L
+                    logDao.deleteOlderThan(sevenDays)
+                }
+                if (loopCount % 10 == 1) {
+                    // ca. alle 10 Minuten: nur trimmen, wenn wirklich zu voll
+                    if (logDao.count() > MAX_LOG_ROWS) {
+                        logDao.deleteBeyondLimit(MAX_LOG_ROWS)
+                    }
+                }
 
                 // Fetch data status
                 val status = api.getRemainingData(contractId)
@@ -605,7 +615,7 @@ class MonitorService : Service() {
 
     /**
      * Foreground-Notification – permanent, sichtbar, mit Tap-Target MainActivity.
-     * Violett-Akzent-Farbe im Black Theme (colorPrimary) fuer konsistentes Look&Feel.
+     * Monochrom-Akzent-Farbe im Black Theme (colorPrimary) fuer konsistentes Look&Feel.
      */
     private fun buildNotification(text: String): Notification {
         val contentIntent = Intent(this, MainActivity::class.java)

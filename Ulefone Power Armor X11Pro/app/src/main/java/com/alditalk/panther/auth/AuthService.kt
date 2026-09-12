@@ -48,6 +48,15 @@ class AuthService {
         throw RuntimeException("PoW nicht gelöst (10M Versuche)")
     }
 
+    /**
+     * X11Pro v1.2: Der PoW-Loop (bis zu 10 Mio SHA-1 auf dem langsamen
+     * Helio G25) lief auf Dispatchers.IO und blockierte dort einen der
+     * wenigen IO-Threads minutenlang – Login-/Netzwerk-Starvation inklusive
+     * UI-Rucklern. CPU-Bound gehört auf Dispatchers.Default.
+     */
+    private suspend fun solvePowAsync(workUuid: String, difficulty: Int): Int =
+        withContext(Dispatchers.Default) { solvePow(workUuid, difficulty) }
+
     /** Full login: ForgeRock PoW → credentials → PKCE authorize → 5-hop redirect chain. */
     suspend fun login(phone: String, password: String): LoginResult = withContext(Dispatchers.IO) {
         val cookieJar = MemoryCookieJar()
@@ -75,7 +84,10 @@ class AuthService {
 
             val step1Resp = client.newCall(step1).execute()
             val step1Body = step1Resp.body?.string() ?: ""
-            Log.e(TAG, "Step1: HTTP ${step1Resp.code}, Body-Laenge=${step1Body.length}, Body=${step1Body.take(800)}")
+            // X11Pro v1.2: Trace-Logs von Log.e auf Log.d zurückgestuft –
+            // jeder Login feuerte dutzende Error-Level-Zeilen (inkl. 800-Byte-
+            // Body-Dump) in den Logcat und kostete CPU/I/O auf dem X11Pro.
+            Log.d(TAG, "Step1: HTTP ${step1Resp.code}, Body-Laenge=${step1Body.length}")
             if (!step1Resp.isSuccessful) {
                 return@withContext LoginResult(false, error = "Step 1 failed: ${step1Resp.code}")
             }
@@ -84,10 +96,10 @@ class AuthService {
             // Extract PoW params from TextOutputCallback
             var powMessage = ""
             val callbacks = data.getJSONArray("callbacks")
-            Log.e(TAG, "Step1: ${callbacks.length()} Callbacks erhalten")
+            Log.d(TAG, "Step1: ${callbacks.length()} Callbacks erhalten")
             for (i in 0 until callbacks.length()) {
                 val cb = callbacks.getJSONObject(i)
-                Log.e(TAG, "Step1: Callback[$i] type=${cb.getString("type")}")
+                Log.d(TAG, "Step1: Callback[$i] type=${cb.getString("type")}")
                 if (cb.getString("type") == "TextOutputCallback") {
                     val outputs = cb.getJSONArray("output")
                     for (j in 0 until outputs.length()) {
@@ -96,20 +108,20 @@ class AuthService {
                     }
                 }
             }
-            Log.e(TAG, "Step1: powMessage-Laenge=${powMessage.length}")
+            Log.d(TAG, "Step1: powMessage-Laenge=${powMessage.length}")
             // Bugfix: Regex mit normalem String statt raw-string, da """([^"]+)""""
             // ein zusaetzliches " am Pattern-Ende erzeugte und nie matchte.
             val workMatch = Regex("var work = \"([^\"]+)\"").find(powMessage)
             val diffMatch = Regex("var difficulty = (\\d+)").find(powMessage)
-            Log.e(TAG, "Step1: workMatch=${if (workMatch != null) "OK:" + workMatch.groupValues[1] else "NULL"}, diffMatch=${if (diffMatch != null) "OK:" + diffMatch.groupValues[1] else "NULL"}")
+            Log.d(TAG, "Step1: workMatch=${if (workMatch != null) "OK" else "NULL"}, diffMatch=${if (diffMatch != null) "OK" else "NULL"}")
             if (workMatch == null || diffMatch == null) {
                 return@withContext LoginResult(false, error = "PoW-Parameter nicht gefunden")
             }
             val workUuid = workMatch.groupValues[1]
             val difficulty = diffMatch.groupValues[1].toInt()
-            Log.e(TAG, "PoW: work=$workUuid, diff=$difficulty")
-            val nonce = solvePow(workUuid, difficulty)
-            Log.e(TAG, "PoW gelöst: nonce=$nonce")
+            Log.d(TAG, "PoW: diff=$difficulty (work-UUID aus Log entfernt)")
+            val nonce = solvePowAsync(workUuid, difficulty)
+            Log.d(TAG, "PoW gelöst: nonce=$nonce")
 
             // ── Step 2: Submit credentials — ALL values as strings ──
             for (i in 0 until callbacks.length()) {
@@ -157,7 +169,7 @@ class AuthService {
                     .path("/")
                     .build())
             )
-            Log.e(TAG, "TokenID erhalten, Cookie gesetzt")
+            Log.d(TAG, "TokenID erhalten, Cookie gesetzt")
 
             // ── Step 3: OAuth2 Authorize with PKCE ──
             val pkce = generatePkce()
@@ -190,7 +202,7 @@ class AuthService {
             if (location.isNullOrEmpty()) {
                 return@withContext LoginResult(false, error = "Kein Location-Header im OAuth-Response")
             }
-            Log.e(TAG, "OAuth2 → ${location.take(80)}...")
+            Log.d(TAG, "OAuth2 → ${location.take(80)}...")
 
             // ── Step 4: Follow redirect chain manually (up to 8 hops) ──
             // Use a nullable var guarded by the while-condition so Kotlin smart
@@ -204,7 +216,7 @@ class AuthService {
             var hop = 0
             while (nextUrl != null && hop < 8) {
                 val resolved = resolveUrl(nextUrl, baseUrl)
-                Log.e(TAG, "Hop $hop: nextUrl='$nextUrl' -> resolved='${resolved.take(120)}'")
+                Log.d(TAG, "Hop $hop: ${resolved.take(120)}")
                 val hopReq = Request.Builder()
                     .url(resolved)
                     .header("User-Agent", AuthConfig.UA)
@@ -212,7 +224,7 @@ class AuthService {
                     .build()
                 val hopResp = client.newCall(hopReq).execute()
                 val locHdr = hopResp.headers["Location"]
-                Log.e(TAG, "Hop $hop → ${hopResp.code} ${resolved.take(60)} | Location=$locHdr")
+                Log.d(TAG, "Hop $hop → ${hopResp.code} ${resolved.take(60)}")
 
                 if (hopResp.code in 301..308) {
                     hopResp.close()
@@ -223,7 +235,7 @@ class AuthService {
                     baseUrl = resolved  // Basis fuer naechsten Hop aktualisieren
                 } else {
                     hopResp.close()
-                    Log.e(TAG, "Redirect-Kette abgeschlossen nach $hop Hops")
+                    Log.d(TAG, "Redirect-Kette abgeschlossen nach $hop Hops")
                     break
                 }
                 hop++

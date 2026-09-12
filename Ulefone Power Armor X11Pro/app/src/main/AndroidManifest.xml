@@ -6,9 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Hintergrundprozess fuer EMUI (Huawei AGS2-L09 / Android 8): Wakelock als Fallback -->
+    <!-- Hintergrundprozess fuer das X11Pro (Android 12): Wakelock als Fallback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Bypass fuer aggressives Batterie-Management – oeffnet Whitelist-Dialog -->
+    <!-- Bypass fuer DuraSpeed / App-Standby – oeffnet Whitelist-Dialog -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- AlarmManager-Fallback fuer Intervall-Polling trotz Doze/Standby -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -24,20 +24,23 @@
         android:networkSecurityConfig="@xml/network_security_config">
 
         <!--
-          X11Pro-Optimierung:
+          X11Pro-Optimierung (v1.2):
            - launchMode=singleTask: erneutes Oeffnen (Launcher oder Notification)
              bring die laufende Instanz nach vorn, statt eine zweite Activity zu
              stapeln (typische Freeze-/Lag-Quelle nach laengerer Laufzeit).
            - configChanges: Drehen baut die Activity nicht neu auf. Die UI-Elements
              halten ihren Zustand, der Monitor-Service laeuft unabhaengig weiter.
-             Auf dem schwachen Unisoc-Chip des X11Pro spart das die komplette
+             Auf dem schwachen Helio G25 des X11Pro spart das die komplette
              Re-Inflation samt RecyclerView-Neuaufbau beim Drehen.
+             smallestScreenSize|layoutDirection (v1.2): Auf Android 12 kann
+             Drehen sonst trotz orientation|screenSize einen Rebuild auslösen –
+             siehe auch onConfigurationChanged() in MainActivity.
         -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|layoutDirection">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -52,7 +55,7 @@
         <!--
           WakeLock-Fallback-Empfaenger: AlarmManager kann via getBroadcast() den
           Receiver ansprechen – dieser startet den [MonitorService] neu,
-          damit EMUI den Monitor nicht beendet.
+          damit DuraSpeed den Monitor nicht beendet.
         -->
         <receiver
             android:name=".service.MonitorWakeReceiver"
