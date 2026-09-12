@@ -49,6 +49,11 @@ public sealed class MonitorController : IDisposable
     private int _connectionFailures;
     private bool _pausedAfterConnectionFailures;
 
+    // Last login error detail (Step N / PoW / OAuth / HTTP code), kept so the
+    // status line and log can show WHY a login failed instead of only counting.
+    // Only written/read on the monitor task — no lock needed.
+    private string _lastLoginError = string.Empty;
+
     public event Action<LogEntry>? LogAdded;
     public event Action<string, float>? StatusChanged;
 
@@ -166,7 +171,7 @@ public sealed class MonitorController : IDisposable
                     return;
                 }
 
-                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})";
+                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}";
                 AddLog(new LogEntry(DateTime.Now, "CHECK", -1, msg));
                 RaiseStatus(msg, -1f);
                 // Next attempt after one full interval (Android fallback alarm).
@@ -238,9 +243,9 @@ public sealed class MonitorController : IDisposable
 
                         AddLog(new LogEntry(
                             DateTime.Now, "CHECK", -1,
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures})"));
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}"));
                         RaiseStatus(
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures})", -1f);
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}", -1f);
                         await DelayAsync(intervalSeconds, cancellationToken);
                         continue;
                     }
@@ -327,8 +332,9 @@ public sealed class MonitorController : IDisposable
             {
                 // The detail string (Step N / PoW / OAuth / snippet) is the key
                 // diagnostic: keep it in the file log, not just the status box.
-                DiagLog.Warn("Monitor", "Login attempt failed: " + (login.Error ?? "?") + ".");
-                RaiseStatus($"Login fehlgeschlagen: {login.Error}", -1f);
+                _lastLoginError = login.Error ?? "Unbekannter Fehler";
+                DiagLog.Warn("Monitor", "Login attempt failed: " + _lastLoginError + ".");
+                RaiseStatus($"Login fehlgeschlagen: {_lastLoginError}", -1f);
                 return (null, string.Empty);
             }
 
@@ -336,16 +342,19 @@ public sealed class MonitorController : IDisposable
             var contractId = await api.ResolveContractIdAsync(phone, cancellationToken);
             if (string.IsNullOrEmpty(contractId))
             {
+                _lastLoginError = "Vertrags-ID konnte nicht ermittelt werden";
                 DiagLog.Warn("Monitor", "Login OK, but contract id could not be resolved.");
                 RaiseStatus("Vertrags-ID konnte nicht ermittelt werden", -1f);
                 api.Dispose();
                 return (null, string.Empty);
             }
 
+            _lastLoginError = string.Empty;
             return (api, contractId);
         }
         catch (Exception e)
         {
+            _lastLoginError = e.Message ?? "Unbekannter Fehler";
             DiagLog.Warn("Monitor", "performLogin threw.", e);
             RaiseStatus($"Fehler bei performLogin: {e.Message}", -1f);
             return (null, string.Empty);

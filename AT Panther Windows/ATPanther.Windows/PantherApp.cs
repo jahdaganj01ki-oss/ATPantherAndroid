@@ -106,7 +106,27 @@ public sealed class PantherApp : Form
         grid.Controls.Add(_phoneBox, 1, 1);
 
         grid.Controls.Add(RowLabel("Password"), 0, 2);
-        grid.Controls.Add(_passwordBox, 1, 2);
+        var passwordPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            Margin = new Padding(0),
+        };
+        passwordPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        passwordPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        passwordPanel.Controls.Add(_passwordBox, 0, 0);
+        var showPassword = new CheckBox
+        {
+            Text = "Anzeigen",
+            Dock = DockStyle.Fill,
+            ForeColor = System.Drawing.Color.FromArgb(190, 190, 190),
+        };
+        showPassword.CheckedChanged += (_, _) =>
+        {
+            _passwordBox.UseSystemPasswordChar = !showPassword.Checked;
+        };
+        passwordPanel.Controls.Add(showPassword, 1, 0);
+        grid.Controls.Add(passwordPanel, 1, 2);
 
         grid.Controls.Add(RowLabel("Threshold (MB)"), 0, 3);
         grid.Controls.Add(_thresholdBox, 1, 3);

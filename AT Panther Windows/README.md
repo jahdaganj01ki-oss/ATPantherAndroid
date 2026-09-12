@@ -17,6 +17,9 @@ The port is not a redesign: it reproduces the Android app's API calls, authentic
   - **Keep-awake**: the system is kept from sleeping while the monitor runs (Windows `SetThreadExecutionState`, counterpart of the Android partial wake lock) and released on stop/pause.
   - **Session hygiene**: the HTTP client of a replaced session is disposed on re-login and on loop exit.
 - ✅ WinForms UI with system-tray presence, live status/log (with remaining-volume like the Android status line), threshold + interval, log export, pause alert balloon, single-instance guard.
+  The password field has an "Anzeigen" checkbox, and failed logins show the
+  cause (Step-N/PoW/OAuth/HTTP detail) directly in the status line and log —
+  the full trace stays in `diagnostics.log`.
 - ✅ Credentials and settings stored DPAPI-protected (`DataProtectionScope.CurrentUser`), improving on the Android plaintext preferences.
 - ✅ `dotnet build "AT Panther Windows/ATPanther.sln"` passes with 0 warnings / 0 errors on .NET SDK 8.
 - ✅ Paritätsstand: **Ulefone Power Armor X11Pro v1.2** (Dreh-/Freeze-Optimierung),
