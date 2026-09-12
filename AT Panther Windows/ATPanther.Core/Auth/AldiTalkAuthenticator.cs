@@ -146,6 +146,21 @@ public sealed class AldiTalkAuthenticator
                 // so even the Log-Export shows which follow-up step the server
                 // demands. (Server echo – contains no password.)
                 trace?.Invoke("Step2 NO tokenId, full body: " + step2Body);
+                var serverError = DescribeServerError(step2Data);
+                if (!string.IsNullOrEmpty(serverError))
+                {
+                    // The portal rejected the login AND tells us why
+                    // (e.g. accountLock): surface it plainly instead of the
+                    // technical callback list. Do NOT retry aggressively –
+                    // hammering a locked account only extends the lockout.
+                    var hint = serverError switch
+                    {
+                        "custom.alditalk.accountLock.accountLockMsg" =>
+                            "Konto vorübergehend gesperrt oder Zugangsdaten falsch — bitte im Portal prüfen und Sperrfrist abwarten, keine weiteren Start-Versuche",
+                        _ => $"Servermeldung: {serverError} — Zugangsdaten im Portal prüfen"
+                    };
+                    return Fail($"Anmeldung abgelehnt ({hint})");
+                }
                 return Fail($"Kein tokenId (HTTP {step2Status}, Callbacks: {DescribeCallbackTypes(step2Body)})");
             }
 
@@ -290,6 +305,44 @@ public sealed class AldiTalkAuthenticator
         {
             return "?";
         }
+    }
+
+    /// <summary>
+    /// Extracts a portal-side error key (custom.alditalk.common.error$…)
+    /// from a no-token ForgeRock response, e.g. the accountLock message the
+    /// portal returns when it rejects a login. Returns the key suffix or an
+    /// empty string. Never includes credential values.
+    /// </summary>
+    private static string DescribeServerError(JsonObject data)
+    {
+        try
+        {
+            if (data["callbacks"] is not JsonArray callbacks) return string.Empty;
+            foreach (var cb in callbacks)
+            {
+                var cbObj = cb?.AsObject();
+                if (cbObj == null) continue;
+                if (cbObj["type"]?.GetValue<string>() != "TextOutputCallback") continue;
+                if (cbObj["output"] is not JsonArray outputs) continue;
+                foreach (var o in outputs)
+                {
+                    var oObj = o?.AsObject();
+                    if (oObj == null) continue;
+                    if (oObj["name"]?.GetValue<string>() != "message") continue;
+                    var value = oObj["value"]?.GetValue<string>() ?? "";
+                    const string prefix = "custom.alditalk.common.error$";
+                    if (value.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        return value[prefix.Length..];
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort diagnostics only: no error key, no problem.
+        }
+        return string.Empty;
     }
 
     /// <summary>Session cookie NAMES only (never values) for the trace.</summary>

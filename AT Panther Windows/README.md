@@ -27,6 +27,9 @@ The port is not a redesign: it reproduces the Android app's API calls, authentic
   `Step2: HTTP …/callbacks/cookies` plus the full Step-2 body when no `tokenId`
   is returned — enough to tell wrong credentials apart from a changed portal
   flow or lost session cookies. Cookie *values* are never logged.
+  A portal-side error key (`custom.alditalk.common.error$…`, e.g. the
+  accountLock message) is surfaced in plain language in the status line and
+  log, so a rejected login no longer looks like a connection error.
 - ✅ Credentials and settings stored DPAPI-protected (`DataProtectionScope.CurrentUser`), improving on the Android plaintext preferences.
 - ✅ `dotnet build "AT Panther Windows/ATPanther.sln"` passes with 0 warnings / 0 errors on .NET SDK 8.
 - ✅ Paritätsstand: **Ulefone Power Armor X11Pro v1.2** (Dreh-/Freeze-Optimierung),

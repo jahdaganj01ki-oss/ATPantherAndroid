@@ -171,7 +171,7 @@ public sealed class MonitorController : IDisposable
                     return;
                 }
 
-                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}";
+                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}";
                 AddLog(new LogEntry(DateTime.Now, "CHECK", -1, msg));
                 RaiseStatus(msg, -1f);
                 // Next attempt after one full interval (Android fallback alarm).
@@ -243,9 +243,9 @@ public sealed class MonitorController : IDisposable
 
                         AddLog(new LogEntry(
                             DateTime.Now, "CHECK", -1,
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}"));
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}"));
                         RaiseStatus(
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 120)}", -1f);
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}", -1f);
                         await DelayAsync(intervalSeconds, cancellationToken);
                         continue;
                     }
