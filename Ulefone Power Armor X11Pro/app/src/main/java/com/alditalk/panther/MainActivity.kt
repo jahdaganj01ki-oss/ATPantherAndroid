@@ -81,6 +81,14 @@ class MainActivity : AppCompatActivity() {
     private var currentLogEntries: List<LogEntry> = emptyList()
 
     /**
+     * Verlauf-Sortierung: Die DAO liefert `ORDER BY timestamp DESC, id DESC`,
+     * d.h. Position 0 ist immer der aktuellste Eintrag. [lastTopLogId] merkt
+     * sich dessen ID, damit bei neuen Eintraegen automatisch nach oben
+     * gescrollt wird – ganz oben steht dadurch immer das Aktuellste.
+     */
+    private var lastTopLogId: Long? = null
+
+    /**
      * SAF Launcher für ACTION_CREATE_DOCUMENT – oeffnet den System-Dateidialog,
      * damit der Nutzer den Speicherort der .txt-Datei frei waehlen kann.
      */
@@ -119,7 +127,13 @@ class MainActivity : AppCompatActivity() {
         btnBatteryOpt = findViewById(R.id.btnBatteryOpt)
         rvLog = findViewById(R.id.rvLog)
 
-        rvLog.layoutManager = LinearLayoutManager(this)
+        // Verlauf: neueste zuerst – Position 0 ist immer der aktuellste
+        // Eintrag (DAO: ORDER BY timestamp DESC, id DESC). Kein
+        // reverseLayout/stackFromEnd, damit oben = aktuellste bleibt.
+        rvLog.layoutManager = LinearLayoutManager(this).apply {
+            reverseLayout = false
+            stackFromEnd = false
+        }
         // X11Pro v1.2: feste Größe + keine Change-Animationen – der
         // DefaultItemAnimator (Fade/Move bei jedem 60-s-Diff) kostet auf der
         // schwachen GPU des X11Pro pro Poll sichtbare Frames und ruckelt
@@ -177,7 +191,14 @@ class MainActivity : AppCompatActivity() {
                     .distinctUntilChanged()
                     .collectLatest { entries ->
                         currentLogEntries = entries
-                        adapter.submitList(entries)
+                        val topId = entries.firstOrNull()?.id
+                        val isNewTop = topId != null && topId != lastTopLogId
+                        lastTopLogId = topId
+                        adapter.submitList(entries) {
+                            // Ganz oben steht immer das Aktuellste: sobald ein
+                            // neuer Eintrag reinkommt, nach oben scrollen.
+                            if (isNewTop) rvLog.scrollToPosition(0)
+                        }
                     }
             }
         }
