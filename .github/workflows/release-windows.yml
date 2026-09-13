@@ -50,7 +50,7 @@ jobs:
       # Self-contained single file - .NET muss auf dem Ziel-PC NICHT installiert sein.
       - name: Publish standalone exe
         run: >
-          dotnet publish "${{ matrix.dir }}/ATPanther.Windows" -c Release -r win-x64
+          dotnet publish "${{ matrix.dir }}/ATPanther.Windows/ATPanther.Windows.csproj" -c Release -r win-x64
           --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true

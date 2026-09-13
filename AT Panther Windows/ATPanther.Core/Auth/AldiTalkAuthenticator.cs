@@ -33,7 +33,7 @@ public sealed class AldiTalkAuthenticator
             AllowAutoRedirect = false,
             UseCookies = true,
             CookieContainer = cookieContainer,
-            AutomaticDecompression = DecompressionMethods.GZip
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         };
         var authClient = new HttpClient(authHandler) { Timeout = _timeout };
         SetUserAgent(authClient);
@@ -239,7 +239,7 @@ public sealed class AldiTalkAuthenticator
                 AllowAutoRedirect = true,
                 UseCookies = true,
                 CookieContainer = cookieContainer,
-                AutomaticDecompression = DecompressionMethods.GZip
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
             };
             var apiClient = new HttpClient(apiHandler) { Timeout = _timeout };
             SetUserAgent(apiClient);

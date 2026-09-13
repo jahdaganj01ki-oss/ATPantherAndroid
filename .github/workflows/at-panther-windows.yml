@@ -40,7 +40,7 @@ jobs:
       # (self-contained single file - .NET does NOT need to be installed on the target PC)
       - name: Publish standalone exe
         run: |
-          dotnet publish "AT Panther Windows/ATPanther.Windows" -c Release -r win-x64 `
+          dotnet publish "AT Panther Windows/ATPanther.Windows/ATPanther.Windows.csproj" -c Release -r win-x64 `
             --self-contained true `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
