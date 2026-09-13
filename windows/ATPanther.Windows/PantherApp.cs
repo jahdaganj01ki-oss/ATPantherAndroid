@@ -106,7 +106,27 @@ public sealed class PantherApp : Form
         grid.Controls.Add(_phoneBox, 1, 1);
 
         grid.Controls.Add(RowLabel("Password"), 0, 2);
-        grid.Controls.Add(_passwordBox, 1, 2);
+        var passwordPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            Margin = new Padding(0),
+        };
+        passwordPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        passwordPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        passwordPanel.Controls.Add(_passwordBox, 0, 0);
+        var showPassword = new CheckBox
+        {
+            Text = "Anzeigen",
+            Dock = DockStyle.Fill,
+            ForeColor = System.Drawing.Color.FromArgb(190, 190, 190),
+        };
+        showPassword.CheckedChanged += (_, _) =>
+        {
+            _passwordBox.UseSystemPasswordChar = !showPassword.Checked;
+        };
+        passwordPanel.Controls.Add(showPassword, 1, 0);
+        grid.Controls.Add(passwordPanel, 1, 2);
 
         grid.Controls.Add(RowLabel("Threshold (MB)"), 0, 3);
         grid.Controls.Add(_thresholdBox, 1, 3);
@@ -126,22 +146,27 @@ public sealed class PantherApp : Form
         var buttons = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 3,
+            ColumnCount = 4,
             Margin = new Padding(0, 10, 0, 0)
         };
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.334f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
 
         _startButton.Click += (_, _) => OnStart();
         _stopButton.Click += (_, _) => OnStop();
+        var saveButton = Button("Save",
+            System.Drawing.Color.FromArgb(120, 120, 120), System.Drawing.Color.White);
+        saveButton.Click += (_, _) => OnSave();
         var exportButton = Button("Export log",
             System.Drawing.Color.FromArgb(120, 120, 120), System.Drawing.Color.White);
         exportButton.Click += (_, _) => OnExportLog();
 
         buttons.Controls.Add(_startButton, 0, 0);
         buttons.Controls.Add(_stopButton, 1, 0);
-        buttons.Controls.Add(exportButton, 2, 0);
+        buttons.Controls.Add(saveButton, 2, 0);
+        buttons.Controls.Add(exportButton, 3, 0);
 
         grid.Controls.Add(buttons, 0, 7);
         grid.SetColumnSpan(buttons, 2);
@@ -202,9 +227,50 @@ public sealed class PantherApp : Form
         SetStatus("Monitor gestoppt");
     }
 
-    private void OnExportLog()
+    /// <summary>
+    /// Saves phone/password/threshold/interval (DPAPI-protected) without
+    /// starting the monitor — port of the Android "Save credentials" button.
+    /// </summary>
+    private void OnSave()
     {
-        if (_monitor.TryExportLog(out var path))
+        var phone = _phoneBox.Text.Trim();
+        var password = _passwordBox.Text;
+        var threshold = (double)_thresholdBox.Value;
+        var intervalSeconds = (int)_intervalBox.Value;
+
+        if (SaveCredentials(phone, password, threshold, intervalSeconds))
+        {
+            SetStatus("Login-Daten und Einstellungen gespeichert");
+            AppendLogLine(DateTime.Now, "CHECK", "Einstellungen gespeichert");
+        }
+        else
+        {
+            SetStatus("Speichern fehlgeschlagen (siehe Diagnose-Log)");
+        }
+    }
+
+    private async void OnExportLog()
+    {
+        // Ulefone v1.2 parity (Freeze-Fix #13): the export formats up to 200
+        // rows — do it off the UI thread so the window never hangs on click.
+        SetStatus("Exportiere Log...");
+        var ok = false;
+        var path = string.Empty;
+        try
+        {
+            (ok, path) = await Task.Run(() =>
+            {
+                var success = _monitor.TryExportLog(out var p);
+                return (success, p);
+            });
+        }
+        catch (Exception ex)
+        {
+            DiagLog.Warn("Export", "Log export failed.", ex);
+            ok = false;
+        }
+
+        if (ok)
         {
             SetStatus($"Log exportiert: {path}");
         }
@@ -269,7 +335,7 @@ public sealed class PantherApp : Form
 
     // ── DPAPI credential persistence (Android SharedPreferences equivalent) ──
 
-    private void SaveCredentials(string phone, string password, double thresholdMb, int intervalSeconds)
+    private bool SaveCredentials(string phone, string password, double thresholdMb, int intervalSeconds)
     {
         try
         {
@@ -279,11 +345,13 @@ public sealed class PantherApp : Form
                 thresholdMb.ToString(CultureInfo.InvariantCulture));
             Credentials.Store(AppConfig.CredentialIntervalSecondsKey,
                 intervalSeconds.ToString(CultureInfo.InvariantCulture));
+            return true;
         }
         catch (Exception ex)
         {
             // Storing is best-effort — the monitor itself keeps running.
             DiagLog.Warn("Setup", "Could not store credentials.", ex);
+            return false;
         }
     }
 

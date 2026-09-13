@@ -19,8 +19,9 @@ public sealed record LogEntry(DateTime Timestamp, string Type, double RemainingM
 ///    the fallback alarm restarts it one interval later (attempt counter persists).
 ///    In-process equivalent: retry once per interval until 3 consecutive failures
 ///    trigger the permanent pause.
-///  - The Room log store is trimmed every cycle (7-day window + hard cap of
-///    MAX_LOG_ROWS). The Windows port mirrors this for the history file too, so the
+///  - The Room log store is trimmed throttled (Ulefone v1.2: 7-day window ~hourly,
+///    hard cap of MAX_LOG_ROWS ~every 10 min and only when over the limit).
+///    The Windows port mirrors this for the history file too, so the
 ///    file cannot grow without bound.
 ///  - While the monitor runs, the system is kept awake (Android partial wake lock;
 ///    Windows: SetThreadExecutionState) and released when the loop ends.
@@ -47,6 +48,11 @@ public sealed class MonitorController : IDisposable
 
     private int _connectionFailures;
     private bool _pausedAfterConnectionFailures;
+
+    // Last login error detail (Step N / PoW / OAuth / HTTP code), kept so the
+    // status line and log can show WHY a login failed instead of only counting.
+    // Only written/read on the monitor task — no lock needed.
+    private string _lastLoginError = string.Empty;
 
     public event Action<LogEntry>? LogAdded;
     public event Action<string, float>? StatusChanged;
@@ -165,7 +171,7 @@ public sealed class MonitorController : IDisposable
                     return;
                 }
 
-                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures})";
+                var msg = $"Login fehlgeschlagen (Verbindungsfehler {failures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}";
                 AddLog(new LogEntry(DateTime.Now, "CHECK", -1, msg));
                 RaiseStatus(msg, -1f);
                 // Next attempt after one full interval (Android fallback alarm).
@@ -180,13 +186,18 @@ public sealed class MonitorController : IDisposable
 
             var reloginsWithoutPoll = 0;
             var consecutiveLoginFailures = 0;
+            // Ulefone v1.2 parity (X11Pro Freeze-Fix #9): do NOT trim on every
+            // 60-s cycle (2 write transactions per poll woke the store and
+            // re-triggered the UI every minute). Instead: age-trim ~hourly,
+            // cap-trim ~every 10 minutes and only when over the limit.
+            var loopCount = 0;
 
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    // Clean log store (7-day window + hard cap, X11Pro freeze fix).
-                    TrimLog();
+                    loopCount++;
+                    TrimLogThrottled(loopCount);
 
                     var status = await api.GetRemainingDataAsync(contractId, cancellationToken);
                     if (status == null)
@@ -232,9 +243,9 @@ public sealed class MonitorController : IDisposable
 
                         AddLog(new LogEntry(
                             DateTime.Now, "CHECK", -1,
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures})"));
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}"));
                         RaiseStatus(
-                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures})", -1f);
+                            $"Re-Login fehlgeschlagen (Versuch {consecutiveLoginFailures}; Verbindungsfehler {connectionFailures}/{MaxConsecutiveConnectionFailures}): {Truncate(_lastLoginError, 180)}", -1f);
                         await DelayAsync(intervalSeconds, cancellationToken);
                         continue;
                     }
@@ -321,8 +332,9 @@ public sealed class MonitorController : IDisposable
             {
                 // The detail string (Step N / PoW / OAuth / snippet) is the key
                 // diagnostic: keep it in the file log, not just the status box.
-                DiagLog.Warn("Monitor", "Login attempt failed: " + (login.Error ?? "?") + ".");
-                RaiseStatus($"Login fehlgeschlagen: {login.Error}", -1f);
+                _lastLoginError = login.Error ?? "Unbekannter Fehler";
+                DiagLog.Warn("Monitor", "Login attempt failed: " + _lastLoginError + ".");
+                RaiseStatus($"Login fehlgeschlagen: {_lastLoginError}", -1f);
                 return (null, string.Empty);
             }
 
@@ -330,16 +342,19 @@ public sealed class MonitorController : IDisposable
             var contractId = await api.ResolveContractIdAsync(phone, cancellationToken);
             if (string.IsNullOrEmpty(contractId))
             {
+                _lastLoginError = "Vertrags-ID konnte nicht ermittelt werden";
                 DiagLog.Warn("Monitor", "Login OK, but contract id could not be resolved.");
                 RaiseStatus("Vertrags-ID konnte nicht ermittelt werden", -1f);
                 api.Dispose();
                 return (null, string.Empty);
             }
 
+            _lastLoginError = string.Empty;
             return (api, contractId);
         }
         catch (Exception e)
         {
+            _lastLoginError = e.Message ?? "Unbekannter Fehler";
             DiagLog.Warn("Monitor", "performLogin threw.", e);
             RaiseStatus($"Fehler bei performLogin: {e.Message}", -1f);
             return (null, string.Empty);
@@ -462,8 +477,43 @@ public sealed class MonitorController : IDisposable
     }
 
     /// <summary>
-    /// Trim mirroring Room deleteOlderThan(7d) + deleteBeyondLimit(5000). Runs once per
-    /// loop cycle; also compacts the persistent history file so it cannot grow forever.
+    /// Throttled trim mirroring Room deleteOlderThan(7d) + deleteBeyondLimit(5000)
+    /// in the Ulefone v1.2 MonitorService: age-trim ~once per hour
+    /// (loopCount % 60), cap-trim ~every 10 minutes and only when over the
+    /// limit (loopCount % 10 + count check). Also compacts the persistent
+    /// history file on the same cadence so it cannot grow forever.
+    /// </summary>
+    private void TrimLogThrottled(int loopCount)
+    {
+        var cutoff = DateTime.Now.AddMilliseconds(-SevenDaysMs);
+        lock (_logLock)
+        {
+            var pruned = false;
+            if (loopCount % 60 == 1)
+            {
+                var before = _log.Count;
+                _log.RemoveAll(e => e.Timestamp < cutoff);
+                pruned = _log.Count != before;
+            }
+
+            if (loopCount % 10 == 1 && _log.Count > MaxLogRows)
+            {
+                var overflow = _log.Count - MaxLogRows;
+                _log.RemoveRange(0, overflow);
+                pruned = true;
+            }
+
+            // Compact the file when old rows were pruned or it outgrew the hard cap.
+            if (pruned || _appendsSinceCompact >= MaxLogRows)
+            {
+                RewriteHistoryFileLocked();
+                _appendsSinceCompact = 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Unthrottled trim (startup/load path only).
     /// </summary>
     private void TrimLog()
     {

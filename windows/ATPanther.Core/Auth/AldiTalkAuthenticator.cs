@@ -51,22 +51,29 @@ public sealed class AldiTalkAuthenticator
             step1Request.Content.Headers.ContentType = new MediaTypeHeaderValue(AuthConfig.JsonMediaType);
 
             string step1Body;
+            int step1Status;
             using (var step1Response = await authClient.SendAsync(step1Request, cancellationToken))
             {
+                step1Status = (int)step1Response.StatusCode;
                 step1Body = await step1Response.Content.ReadAsStringAsync(cancellationToken);
                 if (!step1Response.IsSuccessStatusCode)
                 {
-                    return Fail($"Step 1 failed: {(int)step1Response.StatusCode}");
+                    return Fail($"Step 1 failed: {step1Status}");
                 }
             }
+
+            trace?.Invoke($"Step1: HTTP {step1Status}, body={step1Body.Length} chars, " +
+                           $"cookies=[{CookieNames(cookieContainer)}].");
 
             var data = JsonNode.Parse(step1Body)?.AsObject()
                        ?? throw new InvalidOperationException("Step 1: JSON nicht lesbar");
 
             // Extract PoW parameters from TextOutputCallback
             var powMessage = "";
+            var callbackCount = 0;
             if (data["callbacks"] is JsonArray callbacks)
             {
+                callbackCount = callbacks.Count;
                 foreach (var cb in callbacks)
                 {
                     var cbObj = cb?.AsObject();
@@ -89,7 +96,7 @@ public sealed class AldiTalkAuthenticator
 
             var workMatch = System.Text.RegularExpressions.Regex.Match(powMessage, "var work = \"([^\"]+)\"");
             var diffMatch = System.Text.RegularExpressions.Regex.Match(powMessage, "var difficulty = (\\d+)");
-            trace?.Invoke($"Step1: {callbacks.Count} callbacks, inputs: [{DescribeInputs(data)}], " +
+            trace?.Invoke($"Step1: {callbackCount} callbacks, inputs: [{DescribeInputs(data)}], " +
                           $"work={(workMatch.Success ? "found" : "MISSING")}, difficulty={(diffMatch.Success ? diffMatch.Groups[1].Value : "MISSING")}.");
             if (!workMatch.Success || !diffMatch.Success)
             {
@@ -103,37 +110,58 @@ public sealed class AldiTalkAuthenticator
 
             // ── Step 2: Submit credentials — ALL values as strings ──
             var filled = ApplyCredentials(data, nonce, phone, password);
-            trace?.Invoke($"Step2: filled inputs [{string.Join(",", filled)}].");
+            var step2Json = data.ToJsonString();
+            trace?.Invoke($"Step2: filled inputs [{string.Join(",", filled)}], json={step2Json.Length} chars.");
 
             var step2Request = new HttpRequestMessage(HttpMethod.Post, AuthConfig.AuthEndpoint);
             step2Request.Headers.Accept.ParseAdd("application/json");
-            var step2Json = data.ToJsonString();
             step2Request.Content = new ByteArrayContent(Encoding.UTF8.GetBytes(step2Json));
             step2Request.Content.Headers.ContentType = new MediaTypeHeaderValue(AuthConfig.JsonMediaType);
 
             JsonObject step2Data;
+            var step2Body = "";
+            int step2Status;
             using (var step2Response = await authClient.SendAsync(step2Request, cancellationToken))
             {
+                step2Status = (int)step2Response.StatusCode;
+                step2Body = await step2Response.Content.ReadAsStringAsync(cancellationToken);
                 if (!step2Response.IsSuccessStatusCode)
                 {
-                    return Fail($"Step 2 failed: {(int)step2Response.StatusCode}");
+                    trace?.Invoke($"Step2: HTTP {step2Status}, body={step2Body.Length} chars.");
+                    return Fail($"Step 2 failed: {step2Status}");
                 }
-
-                var step2Body = await step2Response.Content.ReadAsStringAsync(cancellationToken);
-                step2Data = JsonNode.Parse(step2Body)?.AsObject()
-                            ?? throw new InvalidOperationException("Step 2: JSON nicht lesbar");
             }
+
+            trace?.Invoke($"Step2: HTTP {step2Status}, body={step2Body.Length} chars, " +
+                           $"callbacks=[{DescribeCallbackTypes(step2Body)}], cookies=[{CookieNames(cookieContainer)}].");
+            step2Data = JsonNode.Parse(step2Body)?.AsObject()
+                        ?? throw new InvalidOperationException("Step 2: JSON nicht lesbar");
 
             var tokenId = step2Data["tokenId"]?.GetValue<string>();
             if (string.IsNullOrEmpty(tokenId))
             {
                 // No token: ForgeRock continues the tree (wrong credentials, extra
-                // step, changed callbacks…). The UI only shows a snippet; the full
-                // body goes to the trace so the real reason stays diagnosable.
-                // (Server echo – contains no password.)
+                // step, changed callbacks…). The full body goes to the trace; the
+                // app log/status get the short diagnosis (HTTP + callback types)
+                // so even the Log-Export shows which follow-up step the server
+                // demands. (Server echo – contains no password.)
                 trace?.Invoke("Step2 NO tokenId, full body: " + step2Body);
-                var snippet = step2Data.ToJsonString();
-                return Fail($"Login fehlgeschlagen: {snippet[..Math.Min(snippet.Length, 300)]}");
+                var serverError = DescribeServerError(step2Data);
+                if (!string.IsNullOrEmpty(serverError))
+                {
+                    // The portal rejected the login AND tells us why
+                    // (e.g. accountLock): surface it plainly instead of the
+                    // technical callback list. Do NOT retry aggressively –
+                    // hammering a locked account only extends the lockout.
+                    var hint = serverError switch
+                    {
+                        "custom.alditalk.accountLock.accountLockMsg" =>
+                            "Konto vorübergehend gesperrt oder Zugangsdaten falsch — bitte im Portal prüfen und Sperrfrist abwarten, keine weiteren Start-Versuche",
+                        _ => $"Servermeldung: {serverError} — Zugangsdaten im Portal prüfen"
+                    };
+                    return Fail($"Anmeldung abgelehnt ({hint})");
+                }
+                return Fail($"Kein tokenId (HTTP {step2Status}, Callbacks: {DescribeCallbackTypes(step2Body)})");
             }
 
             // Set iPlanetDirectoryPro cookie on the auth domain (Android sets it explicitly).
@@ -253,6 +281,89 @@ public sealed class AldiTalkAuthenticator
         }
 
         return new Uri(new Uri(baseUrl), possiblyRelative).ToString();
+    }
+
+    /// <summary>
+    /// Lists the callback types of a ForgeRock response body ("type" per
+    /// callback) so the trace shows which step the server wants next.
+    /// Never includes input values (no credentials in the log).
+    /// </summary>
+    private static string DescribeCallbackTypes(string body)
+    {
+        try
+        {
+            var root = JsonNode.Parse(body)?.AsObject();
+            if (root?["callbacks"] is not JsonArray callbacks) return "none";
+            var parts = new List<string>();
+            foreach (var cb in callbacks)
+            {
+                parts.Add(cb?.AsObject()?["type"]?.GetValue<string>() ?? "?");
+            }
+            return parts.Count == 0 ? "none" : string.Join(",", parts);
+        }
+        catch
+        {
+            return "?";
+        }
+    }
+
+    /// <summary>
+    /// Extracts a portal-side error key (custom.alditalk.common.error$…)
+    /// from a no-token ForgeRock response, e.g. the accountLock message the
+    /// portal returns when it rejects a login. Returns the key suffix or an
+    /// empty string. Never includes credential values.
+    /// </summary>
+    private static string DescribeServerError(JsonObject data)
+    {
+        try
+        {
+            if (data["callbacks"] is not JsonArray callbacks) return string.Empty;
+            foreach (var cb in callbacks)
+            {
+                var cbObj = cb?.AsObject();
+                if (cbObj == null) continue;
+                if (cbObj["type"]?.GetValue<string>() != "TextOutputCallback") continue;
+                if (cbObj["output"] is not JsonArray outputs) continue;
+                foreach (var o in outputs)
+                {
+                    var oObj = o?.AsObject();
+                    if (oObj == null) continue;
+                    if (oObj["name"]?.GetValue<string>() != "message") continue;
+                    var value = oObj["value"]?.GetValue<string>() ?? "";
+                    const string prefix = "custom.alditalk.common.error$";
+                    if (value.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        return value[prefix.Length..];
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort diagnostics only: no error key, no problem.
+        }
+        return string.Empty;
+    }
+
+    /// <summary>Session cookie NAMES only (never values) for the trace.</summary>
+    private static string CookieNames(CookieContainer jar)
+    {
+        try
+        {
+            var names = new List<string>();
+            foreach (var uri in new[] { new Uri(AuthConfig.Auth), new Uri(AuthConfig.Portal) })
+            {
+                foreach (System.Net.Cookie c in jar.GetCookies(uri))
+                {
+                    if (!names.Contains(c.Name)) names.Add(c.Name);
+                }
+            }
+            return names.Count == 0 ? "none" : string.Join(",", names);
+        }
+        catch
+        {
+            return "?";
+        }
     }
 
     private static string? RawLocation(HttpResponseMessage response)

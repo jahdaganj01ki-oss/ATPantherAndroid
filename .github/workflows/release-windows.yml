@@ -1,0 +1,106 @@
+name: Release Windows exe
+
+# Tag pushen (z. B. `windows-v1.0`) -> baut beide Windows-Baeume (windows/,
+# "AT Panther Windows/") per dotnet publish win-x64 self-contained single-file
+# und haengt beide ZIPs an das GitHub Release. Manuell auch per
+# "Run workflow" ausloesbar (baut dann nur, ohne Release).
+on:
+  push:
+    tags: [ 'windows-v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: windows
+            zip: ATPanther-win-x64.zip
+          - dir: AT Panther Windows
+            zip: ATPanther-win-x64-windows.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Check app icon (from PNG source)
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $srcPath = "${{ matrix.dir }}/ATPanther.Windows/assets/app-icon-source.png"
+          $icoPath = "${{ matrix.dir }}/ATPanther.Windows/assets/app.ico"
+          if (!(Test-Path $srcPath)) { throw "Icon source missing: $srcPath" }
+          if (!(Test-Path $icoPath)) { throw "App icon missing: $icoPath (regenerate from $srcPath)" }
+          $ic = New-Object System.Drawing.Icon($icoPath)
+          Write-Host ("Icon OK: {0}x{1}, {2} Bytes" -f $ic.Width, $ic.Height, (Get-Item $icoPath).Length)
+          $ic.Dispose()
+
+      - name: Build solution
+        run: dotnet build "${{ matrix.dir }}/ATPanther.sln" -c Release
+
+      # Self-contained single file - .NET muss auf dem Ziel-PC NICHT installiert sein.
+      - name: Publish standalone exe
+        run: >
+          dotnet publish "${{ matrix.dir }}/ATPanther.Windows" -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:DebugType=None
+          -o publish
+
+      - name: Create download bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!(Test-Path publish/ATPanther.exe)) {
+            Write-Host "Publish content:"
+            Get-ChildItem publish -Recurse | Format-Table Name,Length -AutoSize | Out-String -Width 200 | Write-Host
+            throw "ATPanther.exe missing - refusing to ship a broken bundle (side-by-side risk)."
+          }
+          $info = Get-Item publish/ATPanther.exe
+          $ver = $info.VersionInfo
+          Write-Host ("Exe OK: publish/ATPanther.exe ({0:N0} Bytes), FileVersion={1}, ProductVersion={2}" -f $info.Length, $ver.FileVersion, $ver.ProductVersion)
+          New-Item -ItemType Directory -Force bundle | Out-Null
+          Copy-Item publish/ATPanther.exe bundle/ATPanther.exe
+          Copy-Item "${{ matrix.dir }}/Diagnose-AT-Panther.bat" bundle/Diagnose-AT-Panther.bat
+          Copy-Item "${{ matrix.dir }}/LIESMICH.txt" bundle/LIESMICH.txt
+          Compress-Archive -Path bundle/* -DestinationPath "${{ matrix.zip }}" -Force
+          Get-Item "${{ matrix.zip }}" | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.zip }}
+          path: ${{ matrix.zip }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    # Nur bei Tag-Push als GitHub Release veroeffentlichen; bei manuellem
+    # workflow_dispatch bleiben die ZIPs als Artifacts verfuegbar.
+    if: startsWith(github.ref, 'refs/tags/windows-v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ATPanther-win-x64*.zip
+          merge-multiple: true
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

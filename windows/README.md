@@ -17,8 +17,30 @@ The port is not a redesign: it reproduces the Android app's API calls, authentic
   - **Keep-awake**: the system is kept from sleeping while the monitor runs (Windows `SetThreadExecutionState`, counterpart of the Android partial wake lock) and released on stop/pause.
   - **Session hygiene**: the HTTP client of a replaced session is disposed on re-login and on loop exit.
 - ✅ WinForms UI with system-tray presence, live status/log (with remaining-volume like the Android status line), threshold + interval, log export, pause alert balloon, single-instance guard.
+  The password field has an "Anzeigen" checkbox, and failed logins show the
+  cause (Step-N/PoW/OAuth/HTTP detail) directly in the status line and log —
+  the full trace stays in `diagnostics.log`.
+- ✅ **Save button** (Android parity): stores phone/password/threshold/interval
+  DPAPI-protected without starting the monitor (Start saves them too).
+- ✅ **Login trace** (ForgeRock diagnosis): `diagnostics.log` records per attempt
+  `Step1: HTTP …/cookies`, `Step2: filled inputs/json-size` and
+  `Step2: HTTP …/callbacks/cookies` plus the full Step-2 body when no `tokenId`
+  is returned — enough to tell wrong credentials apart from a changed portal
+  flow or lost session cookies. Cookie *values* are never logged.
+  A portal-side error key (`custom.alditalk.common.error$…`, e.g. the
+  accountLock message) is surfaced in plain language in the status line and
+  log, so a rejected login no longer looks like a connection error.
 - ✅ Credentials and settings stored DPAPI-protected (`DataProtectionScope.CurrentUser`), improving on the Android plaintext preferences.
 - ✅ `dotnet build windows/ATPanther.sln` passes with 0 warnings / 0 errors on .NET SDK 8.
+- ✅ Paritätsstand: **Ulefone Power Armor X11Pro v1.2** (Dreh-/Freeze-Optimierung),
+  Verlauf **neueste zuerst** (`ORDER BY timestamp DESC, id DESC`, UI-Limit 200),
+  ALDI-Talk-App-Icon sowie die Diagnose-Trace-Verbesserungen
+  (Callback-Inventar, PoW-Nonce, vollständige Step-2-Antwort im Trace).
+  Android-exklusive v1.2-Punkte (RecyclerView-Animator, `configChanges`,
+  DB-Index, PoW-Dispatcher) haben kein Windows-Gegenstück und wurden
+  sinngemäß portiert: **Trim gedrosselt** (Alter ~stündlich, Limit nur alle
+  ~10 min bei Bedarf), **Export im Hintergrund-Thread**, PoW läuft auf dem
+  Monitor-Task (kein UI-Block).
 
 > ⚠️ **Not yet validated against the live portal.** The login/BFF sequence is a faithful code-level port of the Android source, but it has not been exercised end-to-end against a real ALDI Talk account from this environment. Validate parity on a test account before relying on it (see "Validation" below).
 
@@ -65,6 +87,9 @@ windows/
   before any managed code runs: run `windows/Diagnose-AT-Panther.bat` as
   administrator (sxstrace flow, also bundled in the release ZIP) and attach
   `sysinfo.txt` + `diagnostics.log` (+ `sxstrace.txt`).
+- **CI:** `.github/workflows/windows.yml` baut diesen Ordner
+  (`windows/ATPanther.sln`) per `dotnet publish win-x64`
+  und lädt das ZIP `ATPanther-win-x64.zip` (Artifact `ATPanther-win-x64`) hoch.
 - **Icon:** `ATPanther.Windows/assets/app.ico` (7 sizes, PNG-compressed) is
   embedded as `ApplicationIcon` and also feeds the window + tray icon at
   runtime (`AppIcon.cs`, system-icon fallback). Source:

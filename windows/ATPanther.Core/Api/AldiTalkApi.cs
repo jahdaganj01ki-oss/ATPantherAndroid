@@ -42,7 +42,10 @@ public sealed class AldiTalkApi : IDisposable
     private HttpRequestMessage CreateRequest(HttpMethod method, string url, bool jsonPost = false)
     {
         var request = new HttpRequestMessage(method, url);
-        var headers = BffHeaders(jsonPost);
+        // Ulefone parity: Android sends the app User-Agent explicitly on every
+        // BFF call (in addition to Accept/Referer/correlation headers).
+        request.Headers.TryAddWithoutValidation("User-Agent", AuthConfig.UserAgent);
+        var headers = BffHeaders();
         foreach (var (key, value) in headers)
         {
             request.Headers.TryAddWithoutValidation(key, value);
@@ -51,21 +54,17 @@ public sealed class AldiTalkApi : IDisposable
         return request;
     }
 
-    private static Dictionary<string, string> BffHeaders(bool jsonPost)
+    private static Dictionary<string, string> BffHeaders()
     {
-        var headers = new Dictionary<string, string>
+        // Content-Type is a CONTENT header: it is set on HttpContent in
+        // Book1GbAsync only (Android parity: exactly one Content-Type).
+        return new Dictionary<string, string>
         {
             ["Accept"] = "application/json, text/plain, */*",
             ["Referer"] = $"{AuthConfig.Portal}/portal/auth/uebersicht/",
             ["X-CORRELATION-ID"] = $"C_{Guid.NewGuid()}",
             ["X-TRANSACTION-ID"] = $"T_{Guid.NewGuid()}"
         };
-        if (jsonPost)
-        {
-            headers["Content-Type"] = AuthConfig.JsonMediaType;
-        }
-
-        return headers;
     }
 
     /// <summary>
