@@ -19,6 +19,8 @@ import kotlinx.coroutines.*
 /**
  * Foreground service that monitors ALDI Talk data volume and auto-books 1 GB
  * when remaining data drops below the threshold.
+ * Sonderfall: Steht das Volumen komplett auf 0,0 MB, wird nach erfolgreicher
+ * Erstbuchung – mit kurzer Pause (10 s) – ein zweites Mal 1 GB gebucht.
  *
  * X11Pro-Optimierung (Ulefone Power Armor X11Pro, Android 12):
  *  - Läuft als Foreground Service mit permanenter sichtbarer Notification.
@@ -55,6 +57,13 @@ class MonitorService : Service() {
         // Default-Schwelle (Anforderung 2) – 850 MB
         private const val DEFAULT_THRESHOLD_MB = 850f
         private const val DEFAULT_INTERVAL_SEC = 60
+
+        // Doppelbuchung bei komplett leerem Volumen: Anzeige "0,0 MB"
+        // entspricht (durch "%.1f"-Rundung) allem < 0,05 MB. In dem Fall
+        // wird nach der ersten 1-GB-Buchung – bei Erfolg – nach kurzer
+        // Pause ein zweites Mal gebucht.
+        private const val ZERO_VOLUME_EPSILON_MB = 0.05
+        private const val SECOND_BOOKING_DELAY_MS = 10_000L
 
         const val EXTRA_PHONE = "phone"
         const val EXTRA_PASSWORD = "password"
@@ -446,6 +455,36 @@ class MonitorService : Service() {
                     logDao.insert(LogEntry(type = "BOOKING", remainingMb = status.remainingMb.toFloat(), message = bookMsg))
                     updateNotification(bookMsg)
                     broadcastStatus(bookMsg, status.remainingMb.toFloat())
+
+                    // Sonderfall: Volumen komplett auf 0,0 MB -> 2 Mal
+                    // hintereinander buchen (mit kurzer Pause dazwischen).
+                    // Nur bei erfolgreicher Erstbuchung, sonst wuerde die
+                    // Zweitbuchung denselben Fehler nur wiederholen.
+                    if (booking.success && status.remainingMb < ZERO_VOLUME_EPSILON_MB) {
+                        val pauseMsg = "Volumen 0,0 MB — zweite 1-GB-Buchung in ${SECOND_BOOKING_DELAY_MS / 1000} s..."
+                        Log.w(TAG, pauseMsg)
+                        logDao.insert(LogEntry(type = "CHECK", remainingMb = status.remainingMb.toFloat(), message = pauseMsg))
+                        updateNotification(pauseMsg)
+                        broadcastStatus(pauseMsg, status.remainingMb.toFloat())
+
+                        delay(SECOND_BOOKING_DELAY_MS)
+                        // Service koennte waehrend der Pause gestoppt worden sein.
+                        if (!isRunning || serviceJob?.isActive != true) return
+
+                        updateNotification("Buche 2. GB (0,0 MB)...")
+                        broadcastStatus("Buche 2. GB (0,0 MB)...", status.remainingMb.toFloat())
+
+                        val secondBooking = api.book1Gb(status)
+                        val secondMsg = if (secondBooking.success) {
+                            "✅ 2. GB erfolgreich gebucht (0,0 MB-Doppelbuchung)"
+                        } else {
+                            "❌ 2. Buchung fehlgeschlagen (${secondBooking.statusCode}): ${secondBooking.message.take(100)}"
+                        }
+                        Log.w(TAG, secondMsg)
+                        logDao.insert(LogEntry(type = "BOOKING", remainingMb = status.remainingMb.toFloat(), message = secondMsg))
+                        updateNotification(secondMsg)
+                        broadcastStatus(secondMsg, status.remainingMb.toFloat())
+                    }
                 } else {
                     Log.d(TAG, msg)
                     logDao.insert(LogEntry(type = "CHECK", remainingMb = status.remainingMb.toFloat(), message = msg))
