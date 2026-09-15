@@ -99,7 +99,7 @@ public sealed class AldiTalkApi(HttpClient client)
                 if (p?["balanceAttributeReference"]?.GetValue<string>() == "dataGrantAmount")
                 {
                     grantFound = true;
-                    remainingKb = (p?["allocated"]?.GetValue<long>() ?? 0) - (p?["used"]?.GetValue<long>() ?? 0);
+                    remainingKb = ParseLong(p?["allocated"]) - ParseLong(p?["used"]);
                 }
             }
             if (!grantFound)
@@ -121,6 +121,27 @@ public sealed class AldiTalkApi(HttpClient client)
         {
             FileLogger.Error(ex);
             return null;
+        }
+    }
+
+    private static long ParseLong(JsonNode? node)
+    {
+        if (node == null) return 0;
+        try
+        {
+            return node.GetValue<long>();
+        }
+        catch (FormatException)
+        {
+            var s = node.GetValue<string>();
+            if (long.TryParse(s, out var v)) return v;
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            var s = node.GetValue<string>();
+            if (long.TryParse(s, out var v)) return v;
+            return 0;
         }
     }
 
