@@ -8,7 +8,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.textfield.TextInputEditText
 
 /** Kleiner TextWatcher-Adapter (nur onChanged relevant). */
 private class SimpleTextWatcher(private val onChanged: (String) -> Unit) : TextWatcher {
@@ -32,8 +31,8 @@ class MainFragment : Fragment() {
         fun newInstance() = MainFragment()
     }
 
-    private lateinit var etPhone: TextInputEditText
-    private lateinit var etPassword: TextInputEditText
+    private lateinit var etPhone: android.widget.EditText
+    private lateinit var etPassword: android.widget.EditText
     private lateinit var etThreshold: android.widget.EditText
     private lateinit var etInterval: android.widget.EditText
     private lateinit var tvStatus: android.widget.TextView

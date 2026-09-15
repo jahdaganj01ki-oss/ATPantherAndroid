@@ -22,7 +22,6 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
 import com.alditalk.panther.data.LogEntry
 import com.alditalk.panther.service.MonitorService
-import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -237,8 +236,8 @@ class MainActivity : AppCompatActivity() {
     /** X11Pro v1.3: aktuelle Texte aus dem MainFragment in uiState spiegeln. */
     private fun syncUiStateFromFragment() {
         val frag = mainFragment ?: return
-        val phoneView = frag.view?.findViewById<TextInputEditText>(R.id.etPhone)
-        val passView = frag.view?.findViewById<TextInputEditText>(R.id.etPassword)
+        val phoneView = frag.view?.findViewById<EditText>(R.id.etPhone)
+        val passView = frag.view?.findViewById<EditText>(R.id.etPassword)
         val thrView = frag.view?.findViewById<EditText>(R.id.etThreshold)
         val intView = frag.view?.findViewById<EditText>(R.id.etInterval)
         phoneView?.text?.toString()?.let { uiState.phone.value = it }

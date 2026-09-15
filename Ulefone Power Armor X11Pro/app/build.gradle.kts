@@ -14,8 +14,8 @@ android {
         applicationId = "com.alditalk.panther.x11pro"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3-x11pro"
+        versionCode = 5
+        versionName = "1.4-x11pro"
 
         // Ulefone Power Armor X11Pro: arm64-v8a + armeabi-v7a reichen;
         // schlanke APK ohne x86-Emulatoren-ABIs.
