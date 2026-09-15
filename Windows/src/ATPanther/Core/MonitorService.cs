@@ -23,10 +23,16 @@ public sealed class MonitorService
     {
         if (_cts != null) return;
         _cts = new CancellationTokenSource();
+        FileLogger.Info($"Monitor: start phone={phone} threshold={thresholdMb} interval={intervalSec}s");
         _ = RunAsync(phone, password, thresholdMb, intervalSec, _cts.Token);
     }
 
-    public void Stop() { _cts?.Cancel(); _cts = null; }
+    public void Stop() 
+    { 
+        _cts?.Cancel(); 
+        _cts = null;
+        FileLogger.Info("Monitor: stopped");
+    }
 
     private void Log(string type, float remaining, string message)
     {
@@ -48,6 +54,7 @@ public sealed class MonitorService
         {
             Status($"Login fehlgeschlagen: {login.Error}");
             Log("CHECK", 0, $"Login fehlgeschlagen: {login.Error}");
+            FileLogger.Warning($"Monitor: login failed error={login.Error}");
             Stop();
             return;
         }
@@ -57,11 +64,13 @@ public sealed class MonitorService
         {
             Status("Vertrags-ID konnte nicht ermittelt werden");
             Log("CHECK", 0, "Vertrags-ID konnte nicht ermittelt werden");
+            FileLogger.Warning("Monitor: contractId resolution failed");
             Stop();
             return;
         }
         Log("CHECK", 0, "Login erfolgreich");
         Log("CHECK", 0, $"Vertrags-ID erkannt: {contractId}");
+        FileLogger.Info($"Monitor: login ok contractId={contractId}");
 
         while (!ct.IsCancellationRequested)
         {
@@ -86,21 +95,30 @@ public sealed class MonitorService
                 {
                     failures++; relogins++;
                     _state.Save(new MonitorState(failures, false));
+                    FileLogger.Warning($"Monitor: data query returned null failures={failures} relogins={relogins}");
                     if (failures >= AppConfig.MaxConsecutiveConnectionFailures || relogins >= AppConfig.MaxReloginsWithoutPoll)
                     {
                         _state.Save(new MonitorState(failures, true));
                         Status("⛔ AT Panther pausiert");
                         Log("CHECK", 0, "⛔ Monitor pausiert nach wiederholten Fehlern. Manuell neu starten.");
                         Paused?.Invoke();
+                        FileLogger.Warning("Monitor: paused after repeated failures");
                         Stop();
                         break;
                     }
                     var msg = $"⚠️ Datenabfrage fehlgeschlagen, erneuter Login (Versuch {relogins}/{AppConfig.MaxReloginsWithoutPoll})";
                     Status(msg); Log("CHECK", 0, msg);
+                    FileLogger.Warning($"Monitor: data query failed, relogin attempt={relogins}");
                     login = await auth.LoginAsync(phone, password, ct).ConfigureAwait(false);
-                    if (!login.Success) { await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false); continue; }
+                    if (!login.Success) 
+                    { 
+                        FileLogger.Warning($"Monitor: relogin failed error={login.Error}");
+                        await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false); 
+                        continue; 
+                    }
                     api = new AldiTalkApi(login.Client!);
                     contractId = await api.ResolveContractIdAsync(phone, ct).ConfigureAwait(false) ?? contractId;
+                    FileLogger.Info($"Monitor: relogin ok contractId={contractId}");
                     continue;
                 }
 
@@ -143,6 +161,7 @@ public sealed class MonitorService
                 failures++;
                 _state.Save(new MonitorState(failures, false));
                 Status($"Fehler: {ex.Message}");
+                FileLogger.Error(ex);
                 try { await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false); } catch { break; }
             }
         }

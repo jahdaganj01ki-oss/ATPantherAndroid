@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using ATPanther.Core;
 
 namespace ATPanther.Core;
 
@@ -15,7 +16,8 @@ public sealed class AuthService
 {
     private static readonly Regex WorkRegex = new("var work = \"([^\"]+)\"", RegexOptions.Compiled);
     private static readonly Regex DiffRegex = new(@"var difficulty = (\d+)", RegexOptions.Compiled);
- 
+    private static string Truncate(string? s, int max = 500) => string.IsNullOrEmpty(s) ? string.Empty : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
+
     public async Task<LoginResult> LoginAsync(string phone, string password, CancellationToken ct = default)
     {
         var cookies = new CookieContainer();
@@ -28,7 +30,7 @@ public sealed class AuthService
 
         try
         {
-            // Step 1: Callbacks — ECHT LEERER Body (0 Bytes), NICHT "{}".
+            FileLogger.Info("Auth: Step1 request");
             using var step1 = new HttpRequestMessage(HttpMethod.Post, AppConfig.AuthEp);
             step1.Headers.UserAgent.ParseAdd(AppConfig.UserAgent);
             step1.Headers.Accept.ParseAdd("application/json");
@@ -39,7 +41,10 @@ public sealed class AuthService
             using var step1Resp = await client.SendAsync(step1, ct).ConfigureAwait(false);
             var step1Body = await step1Resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             if (!step1Resp.IsSuccessStatusCode)
+            {
+                FileLogger.Warning($"Auth: Step1 failed {(int)step1Resp.StatusCode}");
                 return new LoginResult(false, null, null, $"Step 1 failed: {(int)step1Resp.StatusCode}");
+            }
 
             var data = JsonNode.Parse(step1Body)?.AsObject()
                 ?? throw new InvalidOperationException("Step1: kein JSON");
@@ -62,13 +67,15 @@ public sealed class AuthService
             var workMatch = WorkRegex.Match(powMessage);
             var diffMatch = DiffRegex.Match(powMessage);
             if (!workMatch.Success || !diffMatch.Success)
+            {
+                FileLogger.Warning("Auth: PoW-Parameter nicht gefunden");
                 return new LoginResult(false, null, null, "PoW-Parameter nicht gefunden");
+            }
 
             var workUuid = workMatch.Groups[1].Value;
             var difficulty = int.Parse(diffMatch.Groups[1].Value);
             var nonce = await Crypto.SolvePowAsync(workUuid, difficulty, ct).ConfigureAwait(false);
 
-            // Step 2: Credentials — ALLE Values als String.
             foreach (var cb in callbacks)
             {
                 foreach (var inp in cb?["input"]?.AsArray() ?? new JsonArray())
@@ -89,15 +96,21 @@ public sealed class AuthService
 
             using var step2Resp = await client.SendAsync(step2, ct).ConfigureAwait(false);
             if (!step2Resp.IsSuccessStatusCode)
+            {
+                FileLogger.Warning($"Auth: Step2 failed {(int)step2Resp.StatusCode}");
                 return new LoginResult(false, null, null, $"Step 2 failed: {(int)step2Resp.StatusCode}");
+            }
             var step2Body = await step2Resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var tokenId = JsonNode.Parse(step2Body)?["tokenId"]?.GetValue<string>();
             if (string.IsNullOrEmpty(tokenId))
+            {
+                FileLogger.Warning($"Auth: Login fehlgeschlagen body={Truncate(step2Body)}");
                 return new LoginResult(false, null, null, $"Login fehlgeschlagen: {step2Body.Substring(0, Math.Min(300, step2Body.Length))}");
+            }
 
             cookies.Add(new Uri(AppConfig.Auth), new Cookie("iPlanetDirectoryPro", tokenId, "/", "login.alditalk-kundenbetreuung.de"));
+            FileLogger.Info("Auth: iPlanetDirectoryPro cookie set");
 
-            // Step 3: PKCE Authorize.
             var (verifier, challenge) = Crypto.GeneratePkce();
             _ = verifier;
             var state = Guid.NewGuid().ToString("N");
@@ -112,9 +125,11 @@ public sealed class AuthService
             using var authResp = await client.SendAsync(authReq, ct).ConfigureAwait(false);
             var location = authResp.Headers.Location?.ToString();
             if (string.IsNullOrEmpty(location))
+            {
+                FileLogger.Warning("Auth: Kein Location-Header im OAuth-Response");
                 return new LoginResult(false, null, null, "Kein Location-Header im OAuth-Response");
+            }
 
-            // Step 4: Redirect-Kette (bis 8 Hops), Basis je Hop aktualisieren.
             string? nextUrl = location;
             var baseUrl = authUrl;
             for (var hop = 0; hop < 8 && nextUrl != null; hop++)
@@ -124,11 +139,15 @@ public sealed class AuthService
                 hopReq.Headers.UserAgent.ParseAdd(AppConfig.UserAgent);
                 using var hopResp = await client.SendAsync(hopReq, ct).ConfigureAwait(false);
                 var code = (int)hopResp.StatusCode;
+                var loc = hopResp.Headers.Location?.ToString();
+                FileLogger.Info($"Auth: redirect hop={hop} status={code} resolved={resolved} location={loc}");
                 if (code is >= 301 and <= 308)
                 {
-                    var loc = hopResp.Headers.Location?.ToString();
                     if (string.IsNullOrEmpty(loc))
+                    {
+                        FileLogger.Warning($"Auth: Hop {hop} kein Location");
                         return new LoginResult(false, null, null, $"Hop {hop}: kein Location");
+                    }
                     nextUrl = loc;
                     baseUrl = resolved;
                 }
@@ -141,6 +160,7 @@ public sealed class AuthService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            FileLogger.Error(ex);
             return new LoginResult(false, null, null, ex.Message);
         }
     }

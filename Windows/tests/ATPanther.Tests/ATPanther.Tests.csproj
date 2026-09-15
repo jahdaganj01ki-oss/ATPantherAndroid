@@ -18,6 +18,7 @@
     <Compile Include="..\..\src\ATPanther\Core\AppConfig.cs" Link="Core\AppConfig.cs" />
     <Compile Include="..\..\src\ATPanther\Core\Crypto.cs" Link="Core\Crypto.cs" />
     <Compile Include="..\..\src\ATPanther\Core\AuthService.cs" Link="Core\AuthService.cs" />
+    <Compile Include="..\..\src\ATPanther\Core\FileLogger.cs" Link="Core\FileLogger.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
+using ATPanther.Core;
 
 namespace ATPanther.Core;
 
@@ -19,6 +20,8 @@ public sealed class AldiTalkApi(HttpClient client)
         req.Headers.UserAgent.ParseAdd(AppConfig.UserAgent);
     }
 
+    private static string Truncate(string? s, int max = 500) => string.IsNullOrEmpty(s) ? string.Empty : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
+
     public async Task<string?> ResolveContractIdAsync(string msisdn, CancellationToken ct = default)
     {
         try
@@ -27,18 +30,40 @@ public sealed class AldiTalkApi(HttpClient client)
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             AddBffHeaders(req);
             using var resp = await client.SendAsync(req, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                FileLogger.Warning($"ResolveContractId: {(int)resp.StatusCode} {resp.ReasonPhrase} url={url} body={Truncate(body)}");
+                return null;
+            }
+
             var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
             var subs = json?["userDetails"]?["subscriptions"]?.AsArray();
-            if (subs == null || subs.Count == 0) return null;
+            if (subs == null || subs.Count == 0)
+            {
+                FileLogger.Warning($"ResolveContractId: no subscriptions url={url} json={Truncate(json?.ToJsonString())}");
+                return null;
+            }
+
             foreach (var s in subs)
             {
                 if (s?["msisdn"]?.GetValue<string>() == msisdn)
-                    return s?["contractId"]?.GetValue<string>();
+                {
+                    var cid = s?["contractId"]?.GetValue<string>();
+                    FileLogger.Info($"ResolveContractId: matched msisdn={msisdn} contractId={cid}");
+                    return cid;
+                }
             }
-            return subs[0]?["contractId"]?.GetValue<string>();
+
+            var fallback = subs[0]?["contractId"]?.GetValue<string>();
+            FileLogger.Info($"ResolveContractId: fallback contractId={fallback}");
+            return fallback;
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            return null;
+        }
     }
 
     public async Task<DataStatus?> GetRemainingDataAsync(string contractId, CancellationToken ct = default)
@@ -49,26 +74,54 @@ public sealed class AldiTalkApi(HttpClient client)
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             AddBffHeaders(req);
             using var resp = await client.SendAsync(req, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-            var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                FileLogger.Warning($"GetRemainingData: {(int)resp.StatusCode} {resp.ReasonPhrase} contractId={contractId} body={Truncate(body)}");
+                return null;
+            }
+
+            var bodyText = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var json = JsonNode.Parse(bodyText);
             var offers = json?["subscribedOffers"]?.AsArray();
-            if (offers == null || offers.Count == 0) return null;
+            if (offers == null || offers.Count == 0)
+            {
+                FileLogger.Warning($"GetRemainingData: no subscribedOffers contractId={contractId} json={Truncate(bodyText)}");
+                return null;
+            }
+
             var offer = offers[0]!;
             long remainingKb = 0;
-            foreach (var p in offer?["pack"]?.AsArray() ?? new JsonArray())
+            var pack = offer?["pack"]?.AsArray() ?? new JsonArray();
+            var grantFound = false;
+            foreach (var p in pack)
             {
                 if (p?["balanceAttributeReference"]?.GetValue<string>() == "dataGrantAmount")
+                {
+                    grantFound = true;
                     remainingKb = (p?["allocated"]?.GetValue<long>() ?? 0) - (p?["used"]?.GetValue<long>() ?? 0);
+                }
             }
+            if (!grantFound)
+            {
+                FileLogger.Warning($"GetRemainingData: dataGrantAmount not found in pack contractId={contractId} offer={Truncate(offer?.ToJsonString())}");
+            }
+
+            var remainingMb = remainingKb / 1024.0;
+            FileLogger.Info($"GetRemainingData: remaining={remainingMb:F1} MB contractId={contractId}");
             return new DataStatus(
-                remainingKb / 1024.0,
+                remainingMb,
                 offer?["offerId"]?.GetValue<string>() ?? "",
                 offer?["subscriptionId"]?.GetValue<string>() ?? "",
                 offer?["resourceId"]?.GetValue<string>() ?? "",
                 offer?["onDemandAmountValueUid"]?.GetValue<string>() ?? "",
                 offer?["refillThresholdValueUid"]?.GetValue<string>() ?? "");
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            return null;
+        }
     }
 
     public async Task<BookingResult> Book1GbAsync(DataStatus status, CancellationToken ct = default)
@@ -90,10 +143,12 @@ public sealed class AldiTalkApi(HttpClient client)
             using var resp = await client.SendAsync(req, ct).ConfigureAwait(false);
             var respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var isUpdated = JsonNode.Parse(string.IsNullOrWhiteSpace(respBody) ? "{}" : respBody)?["isUpdated"]?.GetValue<bool>() ?? false;
+            FileLogger.Info($"Book1Gb: success={resp.IsSuccessStatusCode && isUpdated} status={(int)resp.StatusCode} isUpdated={isUpdated}");
             return new BookingResult(resp.IsSuccessStatusCode && isUpdated, isUpdated, (int)resp.StatusCode, respBody);
         }
         catch (Exception ex)
         {
+            FileLogger.Error(ex);
             return new BookingResult(false, false, -1, ex.Message);
         }
     }
