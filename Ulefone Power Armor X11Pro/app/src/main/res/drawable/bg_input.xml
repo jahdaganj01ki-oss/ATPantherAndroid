@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- X11Pro v1.5: Eingabefeld-Hintergrund – dunkelgrau mit heller Umrandung,
+     damit Login-Daten auf Schwarz gut erkennbar sind. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/input_bg" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/input_stroke" />
+    <corners android:radius="6dp" />
+    <padding
+        android:left="10dp"
+        android:top="4dp"
+        android:right="10dp"
+        android:bottom="4dp" />
+</shape>

@@ -3,9 +3,12 @@ package com.alditalk.panther
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.method.HideReturnsTransformationMethod
+import android.text.method.PasswordTransformationMethod
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import androidx.fragment.app.Fragment
 import com.google.android.material.button.MaterialButton
 
@@ -31,14 +34,16 @@ class MainFragment : Fragment() {
         fun newInstance() = MainFragment()
     }
 
-    private lateinit var etPhone: android.widget.EditText
-    private lateinit var etPassword: android.widget.EditText
-    private lateinit var etThreshold: android.widget.EditText
-    private lateinit var etInterval: android.widget.EditText
+    private lateinit var etPhone: EditText
+    private lateinit var etPassword: EditText
+    private lateinit var etThreshold: EditText
+    private lateinit var etInterval: EditText
     private lateinit var tvStatus: android.widget.TextView
     private lateinit var btnToggle: MaterialButton
     private lateinit var btnSave: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
+    private lateinit var btnTogglePassword: MaterialButton
+    private var passwordVisible = false
 
     private fun host(): MainActivity = requireActivity() as MainActivity
 
@@ -59,6 +64,25 @@ class MainFragment : Fragment() {
         btnToggle = view.findViewById(R.id.btnToggleMonitor)
         btnSave = view.findViewById(R.id.btnSaveCredentials)
         btnBatteryOpt = view.findViewById(R.id.btnBatteryOpt)
+        btnTogglePassword = view.findViewById(R.id.btnTogglePassword)
+
+        // X11Pro v1.5: Passwort anzeigen/verbergen (Auge-Button).
+        btnTogglePassword.setOnClickListener {
+            passwordVisible = !passwordVisible
+            val selStart = etPassword.selectionStart.coerceAtLeast(0)
+            val selEnd = etPassword.selectionEnd.coerceAtLeast(0)
+            if (passwordVisible) {
+                etPassword.transformationMethod = HideReturnsTransformationMethod.getInstance()
+                btnTogglePassword.setIconResource(R.drawable.ic_visibility_off)
+                btnTogglePassword.contentDescription = "Passwort verbergen"
+            } else {
+                etPassword.transformationMethod = PasswordTransformationMethod.getInstance()
+                btnTogglePassword.setIconResource(R.drawable.ic_visibility)
+                btnTogglePassword.contentDescription = "Passwort anzeigen"
+            }
+            etPassword.setSelection(selStart.coerceAtMost(etPassword.length()),
+                selEnd.coerceAtMost(etPassword.length()))
+        }
 
         etPhone.setText(activity.uiState.phone.value)
         etPassword.setText(activity.uiState.password.value)

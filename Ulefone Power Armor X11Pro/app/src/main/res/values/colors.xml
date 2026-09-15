@@ -12,6 +12,10 @@
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
 
+    <!-- Eingabefeld-Hintergrund: dunkel mit sichtbarer Umrandung (Black Theme) -->
+    <color name="input_bg">#2A2A2A</color>       <!-- dunkelgraues Feld -->
+    <color name="input_stroke">#8A8A8A</color>   <!-- sichtbare graue Umrandung -->
+    <color name="input_cursor">#FFFFFF</color>   <!-- weisser Cursor/Handles -->
     <!-- Theme-Oberflächen -->
     <color name="bg_black">#000000</color>           <!-- echter Schwarz-Hintergrund -->
     <color name="card_bg">#141414</color>            <!-- dunkelgraue Kartenfläche -->
