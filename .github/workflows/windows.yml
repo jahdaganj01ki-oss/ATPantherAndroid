@@ -1,0 +1,53 @@
+name: Windows Build (AT Panther WPF)
+
+# Baut die Windows-Variante (WPF, .NET 8) als self-contained Single-File-EXE.
+# Pfadfiltert wie x11pro.yml, zusaetzlich manueller Start.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "Windows/**"
+      - ".github/workflows/windows.yml"
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - "Windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Windows
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore ATPanther.sln
+
+      - name: Build Release
+        run: dotnet build ATPanther.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test ATPanther.sln -c Release --no-build
+
+      - name: Publish win-x64 (self-contained single-file)
+        run: dotnet publish src/ATPanther/ATPanther.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/win-x64
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: AT-Panther-Windows-win-x64
+          path: Windows/publish/win-x64/*.exe
+          retention-days: 14

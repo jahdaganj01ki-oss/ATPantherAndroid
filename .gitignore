@@ -23,8 +23,9 @@ local.properties
 /Redmi Note 9 Pro/release.keystore
 
 # Windows-Port (.NET) build output
-windows/**/bin/
-windows/**/obj/
+[Ww]indows/**/bin/
+[Ww]indows/**/obj/
+[Ww]indows/publish/
 
 # Lokale Screenshots/Designs (nicht fuer CI)
 Screens&Design/

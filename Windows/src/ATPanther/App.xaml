@@ -1,0 +1,14 @@
+<Application x:Class="ATPanther.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+  <Application.Resources>
+    <SolidColorBrush x:Key="BgBlack" Color="#000000"/>
+    <SolidColorBrush x:Key="CardBg" Color="#141414"/>
+    <SolidColorBrush x:Key="TextPrimary" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="TextSecondary" Color="#B0B0B0"/>
+    <SolidColorBrush x:Key="InputBg" Color="#2A2A2A"/>
+    <SolidColorBrush x:Key="InputStroke" Color="#8A8A8A"/>
+    <SolidColorBrush x:Key="ButtonGray" Color="#9E9E9E"/>
+  </Application.Resources>
+</Application>
