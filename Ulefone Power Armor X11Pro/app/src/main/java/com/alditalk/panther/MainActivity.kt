@@ -47,8 +47,8 @@ class MainActivity : AppCompatActivity() {
         const val PAGE_LOG = 1
     }
 
-    // Default-Werte
-    private val defaultThresholdMb = 850f   // Anforderung 2: Standardwert 850 MB
+    // Default-Werte (v1.5: Standard-Schwelle 950 MB)
+    private val defaultThresholdMb = 950f
     private val defaultIntervalSec = 60
 
     /** X11Pro v1.3: geteilter Zustand mit beiden ViewPager-Fragmenten. */
@@ -107,7 +107,21 @@ class MainActivity : AppCompatActivity() {
                 if (position == PAGE_LOG) LogFragment.newInstance()
                 else MainFragment.newInstance().also { mainFragment = it }
         }
-        viewPager.offscreenPageLimit = 1
+        // X11Pro v1.5: Seiten-Umschalter oben (● aktiv / ○ inaktiv).
+        val tabMain = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTabMain)
+        val tabLog = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTabLog)
+        fun refreshTabs(position: Int) {
+            tabMain.text = if (position == PAGE_MAIN) "● Haupt" else "○ Haupt"
+            tabLog.text = if (position == PAGE_LOG) "● Verlauf" else "○ Verlauf"
+        }
+        tabMain.setOnClickListener { showMainPage() }
+        tabLog.setOnClickListener { showLogPage() }
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                refreshTabs(position)
+            }
+        })
+        refreshTabs(PAGE_MAIN)
 
         // Anforderung 1: Gespeicherte Login-Daten UND Einstellungen laden
         loadCredentials()
@@ -219,14 +233,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Gespeicherte Login-Daten und Einstellungen laden. Default-Schwelle = 850 MB.
+     * Gespeicherte Login-Daten und Einstellungen laden. Default-Schwelle = 950 MB.
      * X11Pro v1.3: Werte landen in uiState; das Fragment bindet sie bei onViewCreated.
      */
     private fun loadCredentials() {
         val prefs = getEncryptedPrefs()
         uiState.phone.value = prefs.getString("phone", "").orEmpty()
         uiState.password.value = prefs.getString("password", "").orEmpty()
-        // Anforderung 2: Standardwert 850 MB beim ersten App-Start (vorher 250)
+        // v1.5: Standardwert 950 MB beim ersten App-Start.
         uiState.thresholdText.value =
             prefs.getString("threshold_mb", defaultThresholdMb.toInt().toString()).orEmpty()
         uiState.intervalText.value =

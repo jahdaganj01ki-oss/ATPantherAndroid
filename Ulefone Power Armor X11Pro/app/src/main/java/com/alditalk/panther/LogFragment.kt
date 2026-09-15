@@ -62,6 +62,13 @@ class LogFragment : Fragment() {
         view.findViewById<View>(R.id.btnBack).setOnClickListener {
             host().showMainPage()
         }
+        // X11Pro v1.5: Wartung (von Haupt-Seite hierher umgezogen).
+        view.findViewById<View>(R.id.btnClearCache).setOnClickListener {
+            host().onClearCacheClicked()
+        }
+        view.findViewById<View>(R.id.btnExportLog).setOnClickListener {
+            host().onExportLogClicked()
+        }
 
         host().logState.entries.observe(viewLifecycleOwner) { entries ->
             val newTopId = entries.firstOrNull()?.id

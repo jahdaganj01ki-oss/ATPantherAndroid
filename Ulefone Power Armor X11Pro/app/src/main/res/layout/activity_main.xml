@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  X11Pro v1.3: Activity-Host mit ViewPager2.
-  Seite 0 = Haupt (fragment_main), Seite 1 = Verlauf (fragment_log).
-  Wisch nach links oeffnet den Verlauf, Wisch nach rechts kehrt zurueck.
+  X11Pro v1.5: Activity-Host mit Seiten-Umschalter + ViewPager2.
+  Oben zwei kompakte Buttons mit Punkt-Indikator (● aktiv / ○ inaktiv);
+  darunter Seite 0 = Haupt, Seite 1 = Verlauf. Wisch + Tipp wechseln.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -10,10 +10,48 @@
     android:orientation="vertical"
     android:background="@color/bg_black">
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTabMain"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minHeight="32dp"
+            android:text="● Haupt"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:singleLine="true" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTabLog"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:minHeight="32dp"
+            android:text="○ Verlauf"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:singleLine="true" />
+    </LinearLayout>
+
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/viewPager"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
 </LinearLayout>
 

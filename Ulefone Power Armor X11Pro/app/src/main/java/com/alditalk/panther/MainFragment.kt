@@ -38,8 +38,6 @@ class MainFragment : Fragment() {
     private lateinit var tvStatus: android.widget.TextView
     private lateinit var btnToggle: MaterialButton
     private lateinit var btnSave: MaterialButton
-    private lateinit var btnClearCache: MaterialButton
-    private lateinit var btnExportLog: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
 
     private fun host(): MainActivity = requireActivity() as MainActivity
@@ -60,8 +58,6 @@ class MainFragment : Fragment() {
         tvStatus = view.findViewById(R.id.tvStatus)
         btnToggle = view.findViewById(R.id.btnToggleMonitor)
         btnSave = view.findViewById(R.id.btnSaveCredentials)
-        btnClearCache = view.findViewById(R.id.btnClearCache)
-        btnExportLog = view.findViewById(R.id.btnExportLog)
         btnBatteryOpt = view.findViewById(R.id.btnBatteryOpt)
 
         etPhone.setText(activity.uiState.phone.value)
@@ -91,8 +87,6 @@ class MainFragment : Fragment() {
 
         btnToggle.setOnClickListener { activity.onToggleClicked() }
         btnSave.setOnClickListener { activity.onSaveClicked() }
-        btnClearCache.setOnClickListener { activity.onClearCacheClicked() }
-        btnExportLog.setOnClickListener { activity.onExportLogClicked() }
         btnBatteryOpt.setOnClickListener { activity.onBatteryOptClicked() }
     }
 
