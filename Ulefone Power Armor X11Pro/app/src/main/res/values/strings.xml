@@ -4,4 +4,5 @@
     <string name="channel_description">Überwacht ALDI Talk Datenvolumen im Hintergrund</string>
     <string name="channel_alerts_name">Monitor-Alarme</string>
     <string name="channel_alerts_description">Wichtige Hinweise, z. B. Pause nach fehlgeschlagenen Logins</string>
+    <string name="monitor_start">Monitor starten</string>
 </resources>

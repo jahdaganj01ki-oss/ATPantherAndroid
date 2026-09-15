@@ -14,8 +14,8 @@ android {
         applicationId = "com.alditalk.panther.x11pro"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2-x11pro"
+        versionCode = 4
+        versionName = "1.3-x11pro"
 
         // Ulefone Power Armor X11Pro: arm64-v8a + armeabi-v7a reichen;
         // schlanke APK ohne x86-Emulatoren-ABIs.
@@ -78,6 +78,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-service:2.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.viewpager2:viewpager2:1.0.0")
 
     // HTTP
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

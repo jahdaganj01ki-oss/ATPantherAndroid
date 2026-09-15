@@ -25,3 +25,7 @@ local.properties
 # Windows-Port (.NET) build output
 windows/**/bin/
 windows/**/obj/
+
+# Lokale Screenshots/Designs (nicht fuer CI)
+Screens&Design/
+x11build.log

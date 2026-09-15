@@ -10,9 +10,8 @@ Prüfintervall standardmäßig 60 Sekunden).
 | Ordner | Variante | CI-Workflow | Artifact |
 |---|---|---|---|
 | `app/` + Root-Gradle-Projekt | **Android-App** (Basisversion) – gleicher Funktionsstand wie die Gerätevarianten (Freeze-Fixes, Login-Pause, monochromes Design) | `android.yml`, `build.yml` | `AT-Panther-debug-apk` bzw. `ATPanther-debug` |
-| [`Ulefone Power Armor X11Pro/`](Ulefone%20Power%20Armor%20X11Pro/README.md) | **Android-Gerätevariante** fürs Ulefone Power Armor X11Pro (Android 12, Helio G25) – mit Freeze-Fixes + monochromem Design | `x11pro.yml` | `AT-Panther-X11Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
+| [`Ulefone Power Armor X11Pro/`](Ulefone%20Power%20Armor%20X11Pro/README.md) | **Android-Gerätevariante** fürs Ulefone Power Armor X11Pro (Android 12, Helio G25) – Screenshot-UI (scrollfrei, Verlauf per Wisch), Freeze-Fixes + monochromem Design | `x11pro.yml` | `AT-Panther-X11Pro-debug-apk` (Datei: **`AT Panther Ulefone Power Armor X11Pro.apk`**) |
 | [`Redmi Note 9 Pro/`](Redmi%20Note%209%20Pro/README.md) | **Android-Gerätevariante** fürs Xiaomi Redmi Note 9 Pro (Android 11, MIUI, Snapdragon 720G) – Freeze-Fixes + monochromes Design + MIUI-Akku-Anleitung | `redmi-note-9-pro.yml` | `AT-Panther-RedmiNote9Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
-| [`AT Panther Windows/`](AT%20Panther%20Windows/README.md) | **Windows-Port** (.NET 8, WinForms) – 1:1-Port der Ulefone-Variante (v1.2-Stand: Trim-Drosselung, Verlauf neueste zuerst, App-Icon, Diagnose-Trace) | `at-panther-windows.yml` | `ATPanther-win-x64-windows` (Datei: **`ATPanther-win-x64-windows.zip`** mit `ATPanther.exe`) |
 
 Details, Build-Anleitungen und gerätespezifische Hinweise stehen in der
 README des jeweiligen Ordners.
@@ -54,11 +53,10 @@ pfadgefiltert) und per manuellem `workflow_dispatch`:
 |---|---|---|
 | `android.yml` | Root-App | `app-debug.apk` (Artifact `AT-Panther-debug-apk`) |
 | `build.yml` | Root-App | `app-debug.apk` (Artifact `ATPanther-debug`) |
-| `x11pro.yml` | X11Pro-Variante | **`AT Panther.apk`** (Artifact `AT-Panther-X11Pro-debug-apk`) |
+| `x11pro.yml` | X11Pro-Variante | **`AT Panther Ulefone Power Armor X11Pro.apk`** (Artifact `AT-Panther-X11Pro-debug-apk`) |
 | `redmi-note-9-pro.yml` | Redmi-Note-9-Pro-Variante | **`AT Panther.apk`** (Artifact `AT-Panther-RedmiNote9Pro-debug-apk`) |
-| `at-panther-windows.yml` | Windows-Port (`AT Panther Windows/`) | **`ATPanther.exe`** im ZIP (Artifact `ATPanther-win-x64-windows`) |
 
-Die fertigen APKs/ZIPs liegen im Tab **Actions → jeweiligen Run → Artifacts**.
+Die fertigen APKs liegen im Tab **Actions → jeweiligen Run → Artifacts**.
 
 ## Lokal bauen
 

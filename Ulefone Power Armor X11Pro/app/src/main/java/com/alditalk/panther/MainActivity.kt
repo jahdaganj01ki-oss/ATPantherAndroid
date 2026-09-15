@@ -10,20 +10,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
-import androidx.recyclerview.widget.RecyclerView
-import com.alditalk.panther.data.LogDao
+import androidx.viewpager2.adapter.FragmentStateAdapter
+import androidx.viewpager2.widget.ViewPager2
 import com.alditalk.panther.data.LogEntry
 import com.alditalk.panther.service.MonitorService
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -35,19 +33,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * DiffUtil-Callback fuer den Log-Verlauf (X11Pro-Freeze-Fix).
- * LogEntry ist eine data class mit stabilem Primary-Key [LogEntry.id] –
- * strukturelle Gleichheit reicht damit fuer effizientes Partial-Binding.
- */
-private val LOG_DIFF = object : DiffUtil.ItemCallback<LogEntry>() {
-    override fun areItemsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean =
-        oldItem.id == newItem.id
-
-    override fun areContentsTheSame(oldItem: LogEntry, newItem: LogEntry): Boolean =
-        oldItem == newItem
-}
-
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -57,36 +42,29 @@ class MainActivity : AppCompatActivity() {
          * vollem Umfang) aber landet nicht mehr komplett im RecyclerView.
          */
         private const val LOG_UI_LIMIT = 200
+
+        /** ViewPager-Seiten: 0 = Haupt (Screenshot-Layout), 1 = Verlauf. */
+        const val PAGE_MAIN = 0
+        const val PAGE_LOG = 1
     }
 
     // Default-Werte
     private val defaultThresholdMb = 850f   // Anforderung 2: Standardwert 850 MB
     private val defaultIntervalSec = 60
 
-    private lateinit var etPhone: TextInputEditText
-    private lateinit var etPassword: TextInputEditText
-    private lateinit var etThreshold: TextInputEditText
-    private lateinit var etInterval: TextInputEditText
-    private lateinit var tvStatus: android.widget.TextView
-    private lateinit var btnToggle: MaterialButton
-    private lateinit var btnSave: MaterialButton
-    private lateinit var btnClearCache: MaterialButton
-    private lateinit var btnExportLog: MaterialButton
-    private lateinit var btnBatteryOpt: MaterialButton
-    private lateinit var rvLog: RecyclerView
+    /** X11Pro v1.3: geteilter Zustand mit beiden ViewPager-Fragmenten. */
+    val uiState = MainUiState()
+    val logState = LogUiState()
+
+    private lateinit var viewPager: ViewPager2
+
+    /** X11Pro v1.3: Referenzen auf die beiden Pager-Fragmente (kein Tag-Lookup). */
+    private var mainFragment: MainFragment? = null
 
     private var isServiceRunning = false
 
     /** Liste aller Log-Einträge (für den Log-Export gehalten). */
     private var currentLogEntries: List<LogEntry> = emptyList()
-
-    /**
-     * Verlauf-Sortierung: Die DAO liefert `ORDER BY timestamp DESC, id DESC`,
-     * d.h. Position 0 ist immer der aktuellste Eintrag. [lastTopLogId] merkt
-     * sich dessen ID, damit bei neuen Eintraegen automatisch nach oben
-     * gescrollt wird – ganz oben steht dadurch immer das Aktuellste.
-     */
-    private var lastTopLogId: Long? = null
 
     /**
      * SAF Launcher für ACTION_CREATE_DOCUMENT – oeffnet den System-Dateidialog,
@@ -106,7 +84,10 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val status = intent?.getStringExtra(MonitorService.EXTRA_STATUS_TEXT) ?: "—"
             val remaining = intent?.getFloatExtra(MonitorService.EXTRA_REMAINING_MB, -1f) ?: -1f
-            tvStatus.text = if (remaining >= 0) "$status  (${"%.1f".format(remaining)} MB)" else status
+            // BroadcastReceiver kann auf Hintergrund-Threads laufen -> postValue.
+            uiState.statusText.postValue(
+                if (remaining >= 0) "$status  (${"%.1f".format(remaining)} MB)" else status
+            )
         }
     }
 
@@ -119,107 +100,87 @@ class MainActivity : AppCompatActivity() {
             .isAppearanceLightStatusBars = false
         setContentView(R.layout.activity_main)
 
-        // View binding
-        etPhone = findViewById(R.id.etPhone)
-        etPassword = findViewById(R.id.etPassword)
-        etThreshold = findViewById(R.id.etThreshold)
-        etInterval = findViewById(R.id.etInterval)
-        tvStatus = findViewById(R.id.tvStatus)
-        btnToggle = findViewById(R.id.btnToggleService)
-        btnSave = findViewById(R.id.btnSaveCredentials)
-        btnClearCache = findViewById(R.id.btnClearCache)
-        btnExportLog = findViewById(R.id.btnExportLog)
-        btnBatteryOpt = findViewById(R.id.btnBatteryOpt)
-        rvLog = findViewById(R.id.rvLog)
-
-        // Verlauf: neueste zuerst – Position 0 ist immer der aktuellste
-        // Eintrag (DAO: ORDER BY timestamp DESC, id DESC). Kein
-        // reverseLayout/stackFromEnd, damit oben = aktuellste bleibt.
-        rvLog.layoutManager = LinearLayoutManager(this).apply {
-            reverseLayout = false
-            stackFromEnd = false
+        // X11Pro v1.3: ViewPager mit 2 Seiten (Haupt + Verlauf).
+        viewPager = findViewById(R.id.viewPager)
+        viewPager.adapter = object : FragmentStateAdapter(this) {
+            override fun getItemCount(): Int = 2
+            override fun createFragment(position: Int): Fragment =
+                if (position == PAGE_LOG) LogFragment.newInstance()
+                else MainFragment.newInstance().also { mainFragment = it }
         }
-        // X11Pro v1.2: feste Größe + keine Change-Animationen – der
-        // DefaultItemAnimator (Fade/Move bei jedem 60-s-Diff) kostet auf der
-        // schwachen GPU des X11Pro pro Poll sichtbare Frames und ruckelt
-        // zusätzlich, wenn während einer Rotation ein Diff reinkommt.
-        // Größerer View-Cache vermeidet Neu-Inflation beim Scrollen.
-        rvLog.setHasFixedSize(true)
-        rvLog.itemAnimator = null
-        rvLog.setItemViewCacheSize(20)
+        viewPager.offscreenPageLimit = 1
 
         // Anforderung 1: Gespeicherte Login-Daten UND Einstellungen laden
         loadCredentials()
-
-        // Save credentials button – speichert nun auch die Einstellungen (Schwelle/Intervall)
-        btnSave.setOnClickListener {
-            saveCredentials()
-            Toast.makeText(this, "Login-Daten und Einstellungen gespeichert", Toast.LENGTH_SHORT).show()
-        }
-
-        // Toggle service button
-        btnToggle.setOnClickListener {
-            if (isServiceRunning) {
-                stopMonitor()
-            } else {
-                startMonitor()
-            }
-        }
-
-        // Anforderung 3: App-Cache leeren
-        btnClearCache.setOnClickListener {
-            clearAppCache()
-            Toast.makeText(this, "Cache geleert", Toast.LENGTH_SHORT).show()
-        }
-
-        // Anforderung 4: Log exportieren – oeffnet SAF-Dateidialog
-        btnExportLog.setOnClickListener {
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.GERMAN).format(Date())
-            createDocumentLauncher.launch("at_panther_log_$timestamp.txt")
-        }
-
-        // Anforderung 5: Direkt zum Batterie-Optimierungs-Dialog (X11Pro/DuraSpeed)
-        btnBatteryOpt.setOnClickListener {
-            requestIgnoreBatteryOptimizations()
-        }
 
         // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix).
         // X11Pro v1.2: repeatOnLifecycle(STARTED) statt Dauer-Collect (kein
         // Diff im Hintergrund) + distinctUntilChanged (kein redundanter
         // DiffUtil-Durchlauf, wenn der Service nur getrimmt/gelöscht hat).
+        // X11Pro v1.3: Collector befuellt logState + currentLogEntries
+        // (LogFragment beobachtet logState und bindet via ListAdapter).
         val logDao = (application as PantherApp).database.logDao()
-        val adapter = LogAdapter()
-        rvLog.adapter = adapter
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 logDao.getRecent(LOG_UI_LIMIT)
                     .distinctUntilChanged()
                     .collectLatest { entries ->
                         currentLogEntries = entries
-                        val topId = entries.firstOrNull()?.id
-                        val isNewTop = topId != null && topId != lastTopLogId
-                        lastTopLogId = topId
-                        adapter.submitList(entries) {
-                            // Ganz oben steht immer das Aktuellste: sobald ein
-                            // neuer Eintrag reinkommt, nach oben scrollen.
-                            if (isNewTop) rvLog.scrollToPosition(0)
-                        }
+                        logState.entries.postValue(entries)
                     }
             }
         }
     }
 
+    /** X11Pro v1.3: zur Haupt-Seite (Seite 0) wechseln. */
+    fun showMainPage() {
+        if (::viewPager.isInitialized) viewPager.setCurrentItem(PAGE_MAIN, true)
+    }
+
+    /** X11Pro v1.3: zur Verlauf-Seite (Seite 1) wechseln. */
+    fun showLogPage() {
+        if (::viewPager.isInitialized) viewPager.setCurrentItem(PAGE_LOG, true)
+    }
+
+    /** X11Pro v1.3: Klick-Handler des MainFragments (Toggle Monitor). */
+    fun onToggleClicked() {
+        if (isServiceRunning) {
+            stopMonitor()
+        } else {
+            startMonitor()
+        }
+    }
+
+    /** X11Pro v1.3: Klick-Handler des MainFragments (Speichern). */
+    fun onSaveClicked() {
+        saveCredentials()
+        Toast.makeText(this, "Login-Daten und Einstellungen gespeichert", Toast.LENGTH_SHORT).show()
+    }
+
+    /** X11Pro v1.3: Klick-Handler des MainFragments (Cache leeren). */
+    fun onClearCacheClicked() {
+        clearAppCache()
+        Toast.makeText(this, "Cache geleert", Toast.LENGTH_SHORT).show()
+    }
+
+    /** X11Pro v1.3: Klick-Handler des MainFragments (Log exportieren). */
+    fun onExportLogClicked() {
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.GERMAN).format(Date())
+        createDocumentLauncher.launch("at_panther_log_$timestamp.txt")
+    }
+
+    /** X11Pro v1.3: Klick-Handler des MainFragments (Batterie-Optimierung). */
+    fun onBatteryOptClicked() {
+        requestIgnoreBatteryOptimizations()
+    }
+
     /**
      * X11Pro v1.2: Mit configChanges (siehe Manifest) wird die Activity beim
-     * Drehen NICHT neu erzeugt – dieser Callback hält die sichtbare
-     * Scroll-Position stabil, statt die Liste nach dem Re-Layout von oben
-     * zu zeigen (fühlte sich wie ein Hänger an).
+     * Drehen NICHT neu erzeugt – kein manueller Scroll-Erhalt mehr noetig,
+     * da der Verlauf in einem eigenen Fragment mit eigenem Layout lebt.
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val lm = rvLog.layoutManager as? LinearLayoutManager ?: return
-        val pos = lm.findFirstVisibleItemPosition()
-        rvLog.post { lm.scrollToPosition(pos.coerceAtLeast(0)) }
     }
 
     override fun onResume() {
@@ -245,34 +206,52 @@ class MainActivity : AppCompatActivity() {
      * Anforderung 1: Login-Daten plus Einstellungen (Schwelle/Intervall) speichern.
      * Schwelle/Intervall werden als String gespeichert, damit das inputType=number-
      * Feld beim Laden exakt den vom Nutzer getippten Wert zurück erhält.
+     * X11Pro v1.3: Felder leben im MainFragment – uiState wird vorher synchronisiert.
      */
     private fun saveCredentials() {
+        syncUiStateFromFragment()
         val prefs = getEncryptedPrefs()
         prefs.edit()
-            .putString("phone", etPhone.text.toString().trim())
-            .putString("password", etPassword.text.toString().trim())
-            .putString("threshold_mb", etThreshold.text.toString().trim())
-            .putString("interval_sec", etInterval.text.toString().trim())
+            .putString("phone", uiState.phone.value.orEmpty().trim())
+            .putString("password", uiState.password.value.orEmpty().trim())
+            .putString("threshold_mb", uiState.thresholdText.value.orEmpty().trim())
+            .putString("interval_sec", uiState.intervalText.value.orEmpty().trim())
             .apply()
     }
 
     /**
      * Gespeicherte Login-Daten und Einstellungen laden. Default-Schwelle = 850 MB.
+     * X11Pro v1.3: Werte landen in uiState; das Fragment bindet sie bei onViewCreated.
      */
     private fun loadCredentials() {
         val prefs = getEncryptedPrefs()
-        etPhone.setText(prefs.getString("phone", ""))
-        etPassword.setText(prefs.getString("password", ""))
+        uiState.phone.value = prefs.getString("phone", "").orEmpty()
+        uiState.password.value = prefs.getString("password", "").orEmpty()
         // Anforderung 2: Standardwert 850 MB beim ersten App-Start (vorher 250)
-        etThreshold.setText(prefs.getString("threshold_mb", defaultThresholdMb.toInt().toString()))
-        etInterval.setText(prefs.getString("interval_sec", defaultIntervalSec.toString()))
+        uiState.thresholdText.value =
+            prefs.getString("threshold_mb", defaultThresholdMb.toInt().toString()).orEmpty()
+        uiState.intervalText.value =
+            prefs.getString("interval_sec", defaultIntervalSec.toString()).orEmpty()
+    }
+
+    /** X11Pro v1.3: aktuelle Texte aus dem MainFragment in uiState spiegeln. */
+    private fun syncUiStateFromFragment() {
+        val frag = mainFragment ?: return
+        val phoneView = frag.view?.findViewById<TextInputEditText>(R.id.etPhone)
+        val passView = frag.view?.findViewById<TextInputEditText>(R.id.etPassword)
+        val thrView = frag.view?.findViewById<EditText>(R.id.etThreshold)
+        val intView = frag.view?.findViewById<EditText>(R.id.etInterval)
+        phoneView?.text?.toString()?.let { uiState.phone.value = it }
+        passView?.text?.toString()?.let { uiState.password.value = it }
+        thrView?.text?.toString()?.let { uiState.thresholdText.value = it }
+        intView?.text?.toString()?.let { uiState.intervalText.value = it }
     }
 
     private fun parseThreshold(): Float =
-        etThreshold.text.toString().trim().toFloatOrNull() ?: defaultThresholdMb
+        uiState.thresholdText.value.orEmpty().trim().toFloatOrNull() ?: defaultThresholdMb
 
     private fun parseInterval(): Int =
-        etInterval.text.toString().trim().toIntOrNull() ?: defaultIntervalSec
+        uiState.intervalText.value.orEmpty().trim().toIntOrNull() ?: defaultIntervalSec
 
     // ── Cache leeren ──
 
@@ -412,13 +391,14 @@ class MainActivity : AppCompatActivity() {
                 "⛔ Pause aufgehoben — tippe erneut auf Start, um den Monitor neu zu starten",
                 Toast.LENGTH_LONG
             ).show()
-            tvStatus.text = "Pausiert — Start zum Fortsetzen"
-            tvStatus.setTextColor(getColor(R.color.status_warn))
+            uiState.statusText.value = "Pausiert — Start zum Fortsetzen"
+            uiState.statusColorRes.value = R.color.status_warn
             return
         }
 
-        val phone = etPhone.text.toString().trim()
-        val password = etPassword.text.toString().trim()
+        syncUiStateFromFragment()
+        val phone = uiState.phone.value.orEmpty().trim()
+        val password = uiState.password.value.orEmpty().trim()
         if (phone.isEmpty() || password.isEmpty()) {
             Toast.makeText(this, "Bitte Rufnummer und Passwort eingeben", Toast.LENGTH_LONG).show()
             return
@@ -436,9 +416,13 @@ class MainActivity : AppCompatActivity() {
 
         startForegroundService(intent)
         isServiceRunning = true
-        btnToggle.text = "Monitor stoppen"
-        tvStatus.text = "Starte..."
-        tvStatus.setTextColor(getColor(R.color.status_warn))
+        uiState.isServiceRunning.value = true
+        uiState.toggleStopMode.value = true
+        uiState.statusText.value = "Starte..."
+        uiState.statusColorRes.value = R.color.status_warn
+        // X11Pro v1.3: Nach "Monitor starten" automatisch die Verlaufs-Seite
+        // oeffnen, damit der Nutzer direkt sieht, was passiert.
+        showLogPage()
     }
 
     private fun stopMonitor() {
@@ -447,40 +431,9 @@ class MainActivity : AppCompatActivity() {
         }
         startService(intent)  // Send stop action
         isServiceRunning = false
-        btnToggle.text = "Monitor starten"
-        tvStatus.text = "Gestoppt"
-        tvStatus.setTextColor(getColor(R.color.text_secondary))
-    }
-
-    // ── Log RecyclerView Adapter ──
-
-    /**
-     * X11Pro-Freeze-Fix: ListAdapter mit DiffUtil statt RecyclerView.Adapter +
-     * notifyDataSetChanged(). Jede neue Log-Zeile (alle 60 s) bindet nur die
-     * tatsaechlich neue Zeile statt die komplette Liste neu zu zeichnen.
-     * Das war die Hauptursache fuer UI-Haenger nach laengerer Laufzeit.
-     *
-     * X11Pro v1.2: keine `inner class` mehr – der implizite Activity-Verweis
-     * hielt die alte Activity-Instanz über Collector-Laufzeiten am Leben.
-     */
-    class LogAdapter :
-        ListAdapter<LogEntry, LogAdapter.ViewHolder>(LOG_DIFF) {
-
-        private val sdf = SimpleDateFormat("dd.MM HH:mm:ss", Locale.GERMAN)
-
-        class ViewHolder(val view: android.widget.TextView) : RecyclerView.ViewHolder(view)
-
-        override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): ViewHolder {
-            val view = android.view.LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_log, parent, false) as android.widget.TextView
-            return ViewHolder(view)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            val entry = getItem(position)
-            val time = sdf.format(Date(entry.timestamp))
-            val typeIcon = if (entry.type == "BOOKING") "📦" else "📡"
-            holder.view.text = "$time  $typeIcon  ${entry.message}"
-        }
+        uiState.isServiceRunning.value = false
+        uiState.toggleStopMode.value = false
+        uiState.statusText.value = "Gestoppt"
+        uiState.statusColorRes.value = R.color.text_secondary
     }
 }
