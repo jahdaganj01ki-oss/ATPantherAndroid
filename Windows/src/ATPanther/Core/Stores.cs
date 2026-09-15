@@ -2,12 +2,12 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ATPanther.Core;
 
-namespace ATPanther.Core;
+namespace ATPanther;
 
 public sealed record Credentials(string Phone, string Password, float ThresholdMb, int IntervalSec);
 
-/// <summary>DPAPI-geschuetzter Credential-Store (statt Android-SharedPreferences).</summary>
 public sealed class CredentialStore
 {
     private readonly string _file;
@@ -18,9 +18,25 @@ public sealed class CredentialStore
         _file = Path.Combine(dir, "credentials.dat");
     }
 
-    public Credentials Load() => File.Exists(_file)
-        ? JsonSerializer.Deserialize<Credentials>(Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(_file), null, DataProtectionScope.CurrentUser)))!
-        : new Credentials("", "", AppConfig.DefaultThresholdMb, AppConfig.DefaultIntervalSec);
+    public Credentials Load()
+    {
+        try
+        {
+            if (!File.Exists(_file))
+                return new Credentials("", "", AppConfig.DefaultThresholdMb, AppConfig.DefaultIntervalSec);
+
+            var encrypted = File.ReadAllBytes(_file);
+            var raw = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            var json = Encoding.UTF8.GetString(raw);
+            var creds = JsonSerializer.Deserialize<Credentials>(json);
+            return creds ?? new Credentials("", "", AppConfig.DefaultThresholdMb, AppConfig.DefaultIntervalSec);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            return new Credentials("", "", AppConfig.DefaultThresholdMb, AppConfig.DefaultIntervalSec);
+        }
+    }
 
     public void Save(Credentials c)
     {
@@ -41,9 +57,23 @@ public sealed class MonitorStateStore
         _file = Path.Combine(dir, "monitor_state.json");
     }
 
-    public MonitorState Load() => File.Exists(_file)
-        ? JsonSerializer.Deserialize<MonitorState>(File.ReadAllText(_file))!
-        : new MonitorState(0, false);
+    public MonitorState Load()
+    {
+        try
+        {
+            if (!File.Exists(_file))
+                return new MonitorState(0, false);
+
+            var json = File.ReadAllText(_file);
+            var state = JsonSerializer.Deserialize<MonitorState>(json);
+            return state ?? new MonitorState(0, false);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            return new MonitorState(0, false);
+        }
+    }
 
     public void Save(MonitorState s) => File.WriteAllText(_file, JsonSerializer.Serialize(s));
 }

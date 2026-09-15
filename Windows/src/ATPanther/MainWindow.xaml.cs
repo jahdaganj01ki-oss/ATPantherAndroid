@@ -16,22 +16,50 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        InitializeComponent();
-        _monitor = new MonitorService(_db, _state);
-        _monitor.StatusChanged += (t, _) => Dispatcher.Invoke(() => TvStatus.Text = t);
-        _monitor.LogAdded += _ => Dispatcher.Invoke(RefreshLog);
-        _monitor.Paused += () => Dispatcher.Invoke(() =>
-            MessageBox.Show("⛔ AT Panther pausiert nach wiederholten Fehlern. Zum Fortsetzen zweimal auf Start tippen.",
-                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning));
+        try
+        {
+            InitializeComponent();
+            FileLogger.Info("MainWindow initialized.");
 
-        var c = _creds.Load();
-        EtPhone.Text = c.Phone;
-        EtPassword.Password = c.Password;
-        EtThreshold.Text = c.ThresholdMb > 0 ? c.ThresholdMb.ToString("0") : AppConfig.DefaultThresholdMb.ToString("0");
-        EtInterval.Text = c.IntervalSec > 0 ? c.IntervalSec.ToString() : AppConfig.DefaultIntervalSec.ToString();
-        ChkAutostart.IsChecked = IsAutostartEnabled();
-        RefreshLog();
-        _uiReady = true;
+            _monitor = new MonitorService(_db, _state);
+            _monitor.StatusChanged += (t, _) => Dispatcher.Invoke(() => TvStatus.Text = t);
+            _monitor.LogAdded += _ => Dispatcher.Invoke(RefreshLog);
+            _monitor.Paused += () => Dispatcher.Invoke(() =>
+                MessageBox.Show("⛔ AT Panther pausiert nach wiederholten Fehlern. Zum Fortsetzen zweimal auf Start tippen.",
+                    "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning));
+
+            LoadSettings();
+            RefreshLog();
+            _uiReady = true;
+            FileLogger.Info("MainWindow UI ready.");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Initialisieren des Hauptfensters:\n{ex.Message}\n\nDetails wurden in die Logdatei geschrieben.",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+            throw;
+        }
+    }
+
+    private void LoadSettings()
+    {
+        try
+        {
+            var c = _creds.Load();
+            EtPhone.Text = c.Phone;
+            EtPassword.Password = c.Password;
+            EtThreshold.Text = c.ThresholdMb > 0 ? c.ThresholdMb.ToString("0") : AppConfig.DefaultThresholdMb.ToString("0");
+            EtInterval.Text = c.IntervalSec > 0 ? c.IntervalSec.ToString() : AppConfig.DefaultIntervalSec.ToString();
+            ChkAutostart.IsChecked = IsAutostartEnabled();
+            FileLogger.Info("Settings loaded.");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Laden der Einstellungen:\n{ex.Message}\n\nDetails wurden in die Logdatei geschrieben.",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private void RefreshLog()
@@ -67,11 +95,20 @@ public partial class MainWindow : Window
     private string CurrentPassword() => _pwVisible ? EtPasswordVisible.Text.Trim() : EtPassword.Password.Trim();
     private void OnSaveClicked(object sender, RoutedEventArgs e)
     {
-        _creds.Save(new Credentials(
-            EtPhone.Text.Trim(), CurrentPassword(),
-            float.TryParse(EtThreshold.Text.Trim(), out var t) ? t : AppConfig.DefaultThresholdMb,
-            int.TryParse(EtInterval.Text.Trim(), out var i) ? i : AppConfig.DefaultIntervalSec));
-        MessageBox.Show("Anmeldedaten gespeichert.", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
+        try
+        {
+            _creds.Save(new Credentials(
+                EtPhone.Text.Trim(), CurrentPassword(),
+                float.TryParse(EtThreshold.Text.Trim(), out var t) ? t : AppConfig.DefaultThresholdMb,
+                int.TryParse(EtInterval.Text.Trim(), out var i) ? i : AppConfig.DefaultIntervalSec));
+            FileLogger.Info("Credentials saved.");
+            MessageBox.Show("Anmeldedaten gespeichert.", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Speichern:\n{ex.Message}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void OnToggleClicked(object sender, RoutedEventArgs e)
@@ -81,6 +118,7 @@ public partial class MainWindow : Window
             _monitor.Stop();
             TvStatus.Text = "Gestoppt";
             BtnToggle.Content = "Monitor starten";
+            FileLogger.Info("Monitor stopped by user.");
             return;
         }
         var st = _state.Load();
@@ -90,6 +128,7 @@ public partial class MainWindow : Window
             MessageBox.Show("⛔ Pause aufgehoben — klicke erneut auf Start, um den Monitor neu zu starten.",
                 "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
             TvStatus.Text = "Pausiert — Start zum Fortsetzen";
+            FileLogger.Info("Pause cleared by user.");
             return;
         }
         var phone = EtPhone.Text.Trim();
@@ -105,37 +144,82 @@ public partial class MainWindow : Window
         BtnToggle.Content = "Monitor stoppen";
         TvStatus.Text = "Starte...";
         Tabs.SelectedIndex = 1;
+        FileLogger.Info($"Monitor started: phone={phone}, threshold={threshold}MB, interval={interval}s");
     }
 
     private void OnBackClicked(object sender, RoutedEventArgs e) => Tabs.SelectedIndex = 0;
 
+    private void OnOpenLogClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var logPath = Path.Combine(AppContext.BaseDirectory, "at-panther.log");
+            if (!File.Exists(logPath))
+            {
+                MessageBox.Show("Keine Logdatei gefunden.", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = logPath,
+                UseShellExecute = true,
+            };
+            System.Diagnostics.Process.Start(psi);
+            FileLogger.Info($"Logdatei geöffnet: {logPath}");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Logdatei konnte nicht geöffnet werden:\n{ex.Message}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void OnClearClicked(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show("Alle zwischengespeicherten Daten löschen?", "AT Panther",
-                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+        try
         {
-            _db.Clear();
-            RefreshLog();
+            if (MessageBox.Show("Alle zwischengespeicherten Daten löschen?", "AT Panther",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                _db.Clear();
+                RefreshLog();
+                FileLogger.Info("Log database cleared by user.");
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Löschen:\n{ex.Message}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
     private void OnExportClicked(object sender, RoutedEventArgs e)
     {
-        var dlg = new SaveFileDialog { Filter = "Textdatei (*.txt)|*.txt", FileName = "at-panther-log.txt" };
-        if (dlg.ShowDialog() != true) return;
-        using var w = new StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
-        var all = _db.GetAll();
-        w.WriteLine("AT Panther – Protokoll-Export");
-        w.WriteLine($"Exportiert: {DateTime.Now:dd.MM.yyyy HH:mm:ss}");
-        w.WriteLine($"Einträge: {all.Count}");
-        w.WriteLine();
-        foreach (var en in all)
+        try
         {
-            var time = DateTimeOffset.FromUnixTimeMilliseconds(en.Timestamp).LocalDateTime.ToString("dd.MM.yyyy HH:mm:ss");
-            var icon = en.Type == "BOOKING" ? "📦" : "📡";
-            w.WriteLine($"{time}  {icon}  {en.Message}  [{en.RemainingMb:F1} MB]");
+            var dlg = new SaveFileDialog { Filter = "Textdatei (*.txt)|*.txt", FileName = "at-panther-log.txt" };
+            if (dlg.ShowDialog() != true) return;
+            using var w = new StreamWriter(dlg.FileName, false, System.Text.Encoding.UTF8);
+            var all = _db.GetAll();
+            w.WriteLine("AT Panther – Protokoll-Export");
+            w.WriteLine($"Exportiert: {DateTime.Now:dd.MM.yyyy HH:mm:ss}");
+            w.WriteLine($"Einträge: {all.Count}");
+            w.WriteLine();
+            foreach (var en in all)
+            {
+                var time = DateTimeOffset.FromUnixTimeMilliseconds(en.Timestamp).LocalDateTime.ToString("dd.MM.yyyy HH:mm:ss");
+                var icon = en.Type == "BOOKING" ? "📦" : "📡";
+                w.WriteLine($"{time}  {icon}  {en.Message}  [{en.RemainingMb:F1} MB]");
+            }
+            FileLogger.Info($"Log exported to: {dlg.FileName}");
+            MessageBox.Show($"Exportiert: {dlg.FileName}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        MessageBox.Show($"Exportiert: {dlg.FileName}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Export:\n{ex.Message}", "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
