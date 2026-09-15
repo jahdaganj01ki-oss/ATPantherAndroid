@@ -96,10 +96,14 @@ public sealed class AldiTalkApi(HttpClient client)
             var grantFound = false;
             foreach (var p in pack)
             {
-                if (p?["balanceAttributeReference"]?.GetValue<string>() == "dataGrantAmount")
+                var balanceRef = p?["balanceAttributeReference"]?.GetValue<string>();
+                var allocated = p?["allocated"];
+                var used = p?["used"];
+                FileLogger.Info($"GetRemainingData: pack entry balanceRef={balanceRef} allocated={allocated} used={used}");
+                if (balanceRef == "dataGrantAmount")
                 {
                     grantFound = true;
-                    remainingKb = ParseLong(p?["allocated"]) - ParseLong(p?["used"]);
+                    remainingKb = ParseLong(allocated) - ParseLong(used);
                 }
             }
             if (!grantFound)
@@ -163,7 +167,18 @@ public sealed class AldiTalkApi(HttpClient client)
             req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp = await client.SendAsync(req, ct).ConfigureAwait(false);
             var respBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var isUpdated = JsonNode.Parse(string.IsNullOrWhiteSpace(respBody) ? "{}" : respBody)?["isUpdated"]?.GetValue<bool>() ?? false;
+
+            bool isUpdated;
+            try
+            {
+                isUpdated = JsonNode.Parse(string.IsNullOrWhiteSpace(respBody) ? "{}" : respBody)?["isUpdated"]?.GetValue<bool>() ?? false;
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Warning($"Book1Gb: invalid JSON response status={(int)resp.StatusCode} body={Truncate(respBody)} error={ex.Message}");
+                return new BookingResult(false, false, (int)resp.StatusCode, Truncate(respBody));
+            }
+
             FileLogger.Info($"Book1Gb: success={resp.IsSuccessStatusCode && isUpdated} status={(int)resp.StatusCode} isUpdated={isUpdated}");
             return new BookingResult(resp.IsSuccessStatusCode && isUpdated, isUpdated, (int)resp.StatusCode, respBody);
         }
