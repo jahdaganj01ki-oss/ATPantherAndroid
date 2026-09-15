@@ -139,12 +139,16 @@ public sealed class AldiTalkApi(HttpClient client)
         {
             var s = node.GetValue<string>();
             if (long.TryParse(s, out var v)) return v;
+            if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                return (long)d;
             return 0;
         }
         catch (InvalidOperationException)
         {
             var s = node.GetValue<string>();
             if (long.TryParse(s, out var v)) return v;
+            if (double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                return (long)d;
             return 0;
         }
     }
