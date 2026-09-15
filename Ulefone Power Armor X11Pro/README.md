@@ -66,8 +66,13 @@ erfolgreiche Re-Logins ohne erfolgreiche Datenafrage), stoppt der Monitor
   Boot-Start wird blockiert, und auch Netzwerk-Exceptions zählen jetzt als
   fehlgeschlagene Versuche (vorher lief der Loop bei WLAN-/DNS-Problemen
   endlos weiter)
-- Nach jedem erfolgreichen Re-Login wartet der Loop wieder das normale
-  Intervall – kein Login-Sturm mehr aufs ALDI-Talk-Portal
+- Nach jedem erfolgreichen Re-Login fragt der Loop das Datenvolumen sofort
+  erneut ab und bucht ggf. direkt nach – kein Warten aufs normale Intervall.
+  Schutz vor Login-Sturm: 5 Re-Logins ohne erfolgreiche Abfrage pausieren
+  (der Login selbst mit PoW + Redirect-Kette dauert bereits Sekunden).
+- Steht das Volumen komplett auf 0,0 MB (< 0,05 MB), wird nach erfolgreicher
+  Erstbuchung – nach 3 s Pause plus frischer Datenabfrage – ein zweites Mal
+  1 GB gebucht (wie 2x Klick auf „+1GB" im Portal, je mit Benachrichtigung).
 - **Fortsetzung nur manuell:** App öffnen → „Start" hebt die Pause auf
   (Status „Pausiert — Start zum Fortsetzen") → nochmal „Start" startet den
   Monitor. Der erste Tipp loggt sich bewusst NICHT sofort ein.

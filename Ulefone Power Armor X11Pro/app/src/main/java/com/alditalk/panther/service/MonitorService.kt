@@ -20,7 +20,8 @@ import kotlinx.coroutines.*
  * Foreground service that monitors ALDI Talk data volume and auto-books 1 GB
  * when remaining data drops below the threshold.
  * Sonderfall: Steht das Volumen komplett auf 0,0 MB, wird nach erfolgreicher
- * Erstbuchung – mit kurzer Pause (10 s) – ein zweites Mal 1 GB gebucht.
+ * Erstbuchung – nach kurzer Pause (3 s) plus frischer Datenabfrage –
+ * ein zweites Mal 1 GB gebucht (wie 2x Klick auf "+1GB" im Portal).
  *
  * X11Pro-Optimierung (Ulefone Power Armor X11Pro, Android 12):
  *  - Läuft als Foreground Service mit permanenter sichtbarer Notification.
@@ -61,9 +62,10 @@ class MonitorService : Service() {
         // Doppelbuchung bei komplett leerem Volumen: Anzeige "0,0 MB"
         // entspricht (durch "%.1f"-Rundung) allem < 0,05 MB. In dem Fall
         // wird nach der ersten 1-GB-Buchung – bei Erfolg – nach kurzer
-        // Pause ein zweites Mal gebucht.
+        // Pause (3 s) plus frischer Datenabfrage ein zweites Mal gebucht
+        // (wie 2x Klick auf "+1GB" im Portal, je mit Benachrichtigung).
         private const val ZERO_VOLUME_EPSILON_MB = 0.05
-        private const val SECOND_BOOKING_DELAY_MS = 10_000L
+        private const val SECOND_BOOKING_DELAY_MS = 3_000L
 
         const val EXTRA_PHONE = "phone"
         const val EXTRA_PASSWORD = "password"
@@ -400,13 +402,15 @@ class MonitorService : Service() {
                         clearConnectionFailures()
                         api = session.first
                         contractId = session.second
-                        Log.i(TAG, "Re-Login erfolgreich")
-                        logDao.insert(LogEntry(type = "CHECK", message = "Re-Login erfolgreich"))
-                        updateNotification("Re-Login erfolgreich")
-                        broadcastStatus("Re-Login erfolgreich", -1f)
-                        // Erst das normale Intervall abwarten, dann erneut abfragen –
-                        // sonst feuern Login-Ketten ohne Pause aufs Portal.
-                        delay(intervalSec * 1000L)
+                        val reloginMsg = "Re-Login erfolgreich — frage Datenvolumen sofort erneut ab..."
+                        Log.i(TAG, reloginMsg)
+                        logDao.insert(LogEntry(type = "CHECK", message = reloginMsg))
+                        updateNotification(reloginMsg)
+                        broadcastStatus(reloginMsg, -1f)
+                        // Kein delay: direkt erneut abfragen und ggf. nachbuchen.
+                        // Schutz vor Login-Sturm: MAX_RELOGINS_WITHOUT_POLL-Cap oben
+                        // pausiert bei wiederholt fehlschlagender Abfrage; der Login
+                        // selbst (PoW + Redirect-Kette) dauert bereits Sekunden.
                         continue
                     } else {
                         consecutiveLoginFailures++
@@ -457,7 +461,11 @@ class MonitorService : Service() {
                     broadcastStatus(bookMsg, status.remainingMb.toFloat())
 
                     // Sonderfall: Volumen komplett auf 0,0 MB -> 2 Mal
-                    // hintereinander buchen (mit kurzer Pause dazwischen).
+                    // hintereinander buchen (wie 2x Klick auf "+1GB" im Portal,
+                    // je mit eigener Benachrichtigung). Vor der 2. Buchung wird
+                    // das Volumen frisch abgefragt, damit sie mit aktuellem
+                    // offer-/resource-State laeuft (Fallback: alte status-Daten,
+                    // falls die Zwischenabfrage fehlschlaegt).
                     // Nur bei erfolgreicher Erstbuchung, sonst wuerde die
                     // Zweitbuchung denselben Fehler nur wiederholen.
                     if (booking.success && status.remainingMb < ZERO_VOLUME_EPSILON_MB) {
@@ -471,19 +479,37 @@ class MonitorService : Service() {
                         // Service koennte waehrend der Pause gestoppt worden sein.
                         if (!isRunning || serviceJob?.isActive != true) return
 
-                        updateNotification("Buche 2. GB (0,0 MB)...")
-                        broadcastStatus("Buche 2. GB (0,0 MB)...", status.remainingMb.toFloat())
+                        val refreshMsg = "Frage Volumen vor 2. Buchung erneut ab..."
+                        Log.d(TAG, refreshMsg)
+                        logDao.insert(LogEntry(type = "CHECK", remainingMb = status.remainingMb.toFloat(), message = refreshMsg))
+                        updateNotification(refreshMsg)
+                        broadcastStatus(refreshMsg, status.remainingMb.toFloat())
 
-                        val secondBooking = api.book1Gb(status)
+                        val freshStatus = api.getRemainingData(contractId) ?: status
+                        if (freshStatus !== status) {
+                            val freshStr = "%.1f".format(freshStatus.remainingMb)
+                            val freshMsg = "Verbleibend vor 2. Buchung: $freshStr MB"
+                            Log.d(TAG, freshMsg)
+                            logDao.insert(LogEntry(type = "CHECK", remainingMb = freshStatus.remainingMb.toFloat(), message = freshMsg))
+                        } else {
+                            val staleMsg = "Zwischenabfrage fehlgeschlagen — 2. Buchung mit vorherigen Daten"
+                            Log.w(TAG, staleMsg)
+                            logDao.insert(LogEntry(type = "CHECK", remainingMb = status.remainingMb.toFloat(), message = staleMsg))
+                        }
+
+                        updateNotification("Buche 2. GB (0,0 MB)...")
+                        broadcastStatus("Buche 2. GB (0,0 MB)...", freshStatus.remainingMb.toFloat())
+
+                        val secondBooking = api.book1Gb(freshStatus)
                         val secondMsg = if (secondBooking.success) {
                             "✅ 2. GB erfolgreich gebucht (0,0 MB-Doppelbuchung)"
                         } else {
                             "❌ 2. Buchung fehlgeschlagen (${secondBooking.statusCode}): ${secondBooking.message.take(100)}"
                         }
                         Log.w(TAG, secondMsg)
-                        logDao.insert(LogEntry(type = "BOOKING", remainingMb = status.remainingMb.toFloat(), message = secondMsg))
+                        logDao.insert(LogEntry(type = "BOOKING", remainingMb = freshStatus.remainingMb.toFloat(), message = secondMsg))
                         updateNotification(secondMsg)
-                        broadcastStatus(secondMsg, status.remainingMb.toFloat())
+                        broadcastStatus(secondMsg, freshStatus.remainingMb.toFloat())
                     }
                 } else {
                     Log.d(TAG, msg)
