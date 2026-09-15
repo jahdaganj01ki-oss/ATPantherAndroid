@@ -31,7 +31,7 @@ public sealed class CredentialStore
             var creds = JsonSerializer.Deserialize<Credentials>(json);
             return creds ?? new Credentials("", "", AppConfig.DefaultThresholdMb, AppConfig.DefaultIntervalSec);
         }
-        catch (CryptographicException ex)
+        catch (CryptographicException)
         {
             FileLogger.Warning($"CredentialStore: invalid encrypted file, deleting {_file}");
             try { File.Delete(_file); } catch { }
