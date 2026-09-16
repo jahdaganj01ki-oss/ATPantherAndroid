@@ -1,63 +1,91 @@
-# Plan: Windows data-query failure diagnostics + fixes
+# Plan: Windows UI/UX improvements — tray, notifications, clear history
 
 ## Context
-- Windows WPF build runs, login + contract-ID lookup succeed.
-- `GetRemainingDataAsync` returns `null` repeatedly, monitor pauses after retries.
-- **Confirmed behavior:** the app remains open showing the pause dialog. This means the monitor loop is alive and running, but data queries fail silently until the pause threshold is hit.
-- The user's `at-panther.log` shows **no monitor-loop activity** at all: only startup events and "Monitor started". The `MonitorService` currently writes only to SQLite via `_db.Insert()`, not to the file logger, so we have zero visibility into why data queries fail.
-- Log shows a `CryptographicException` on first start when loading DPAPI credentials (file from another machine/user); currently handled, but invalid file stays on disk.
-- Android reference implementation works; suspect missing diagnostics and/or subtle auth/cookie/redirect handling differences.
+- The Windows WPF app works end-to-end now.
+- Requested UX improvements:
+  1. Add an in-app option to clear history.
+  2. Minimize to tray with tooltip and context menu.
+  3. Error notifications via Windows 10 toast/balloon.
 
-## Goal
-Make the Windows variant reliably fetch remaining data, and make failures diagnosable from `at-panther.log`.
+## Current state verified
+- `MainWindow.xaml` has two tabs: “Haupt” and “Verlauf”.
+- “Verlauf” already has `BtnClear` (“Cache löschen”).
+- No tray icon, no system-integrated notifications yet.
+- `App.xaml.cs` has no Windows Forms references.
+- `ATPanther.csproj` does not have `<UseWindowsForms>`.
 
 ## Decisions
-1. **Add structured HTTP diagnostics in `AldiTalkApi`** instead of silent `catch { return null; }`.
-   - Log for each API call: method, URL, status code, truncated response body (max 500 chars), exception type/message.
-   - Log JSON parse failures and missing expected fields separately.
-   - Keep returning `null` on failure to preserve monitor behavior.
-2. **Add diagnostics in `AuthService`**:
-   - Log each redirect hop: resolved URL, status code, Location header snippet.
-   - Log when `iPlanetDirectoryPro` cookie is added to container.
-   - Do NOT log full request/response bodies to avoid sensitive data.
-3. **Add file logging to `MonitorService`** — **critical gap**:
-   - Currently `MonitorService` only writes to SQLite via `_db.Insert()`. The file logger has zero visibility into the monitor loop.
-   - Add `FileLogger.Info/Warning/Error` calls at: monitor start, each data query attempt (with contractId and result), each re-login attempt, pause trigger, and monitor stop.
-   - This is necessary to trace the exact failure chain that leads to pause.
-4. **Fix DPAPI credential loading**:
-   - Catch `CryptographicException` specifically, delete the invalid `_file`, log warning, return empty defaults so the user re-saves.
-5. **Preserve existing behavior**:
-   - Do not change login flow, cookie handling, redirect logic, or monitor retry logic unless diagnostics show a concrete mismatch.
-6. **Validation**:
-   - Build succeeds locally (`dotnet build`).
-   - Tests cannot run in this Codespace (missing .NET 8 runtime), so rely on GitHub Actions for test + publish.
-   - Push changes, trigger Windows workflow, download artifact `AT-Panther-Windows-win-x64`.
-   - User runs artifact on Windows, reproduces the failure, and shares the full `at-panther.log` content.
 
-## Steps
-1. Update `Windows/src/ATPanther/Core/AldiTalkApi.cs`:
-   - Replace bare `catch { return null; }` with structured logging via `FileLogger`.
-   - Before returning `null` on non-success status, log: method, URL, status code, truncated body (max 500 chars).
-   - Log JSON parse failures, missing `subscribedOffers`, and missing `dataGrantAmount` pack entry.
-   - Log successful response with remaining MB for correlation.
-2. Update `Windows/src/ATPanther/Core/AuthService.cs`:
-   - Add logging at each redirect hop: resolved URL, status code, Location header snippet.
-   - Log when `iPlanetDirectoryPro` cookie is added to container.
-   - Do NOT log full request/response bodies to avoid sensitive data exposure.
-3. Update `Windows/src/ATPanther/Core/MonitorService.cs`:
-   - Add `FileLogger.Info/Warning/Error` calls at key points: monitor start, each data query attempt (with contractId and result), each re-login attempt, pause trigger, monitor stop.
-   - This fills the critical visibility gap in the monitor loop.
-4. Update `Windows/src/ATPanther/Core/Stores.cs`:
-   - In `CredentialStore.Load()`, catch `CryptographicException` specifically, delete `_file`, log warning, return empty credentials.
-5. Commit, push, trigger GitHub Actions `windows.yml`, wait for success, download artifact `AT-Panther-Windows-win-x64`.
-6. Provide artifact path and run ID to user for reproduction. Instruct user to reproduce the failure and share the full `at-panther.log` content.
+### 1. Clear history
+- Add a “Verlauf löschen” button on the “Haupt” tab, below the monitor controls.
+- Reuse the existing `OnClearClicked` logic; keep the confirmation dialog.
+- Keep the existing button in “Verlauf” as-is.
 
-## Risks
-- Logging response bodies may capture sensitive data; truncate to 500 chars and do not log full passwords/tokens.
-- Changing cookie/redirect behavior without evidence could break the working login flow; avoid unless diagnostics require it.
-- `FileLogger` writes to `AppContext.BaseDirectory`; ensure directory is writable in portable EXE context (already addressed).
-- Diagnostic logs may grow the file; consider log rotation if issue takes multiple runs to reproduce.
-- `FileLogger` writes to `AppContext.BaseDirectory`; ensure directory is writable in portable EXE context (already addressed).
+### 2. Minimize to tray
+- Use `System.Windows.Forms.NotifyIcon` because WPF has no built-in tray control.
+- Add `<UseWindowsForms>true</UseWindowsForms>` to `ATPanther.csproj`.
+- Create `NotifyIcon` in `App.xaml.cs` so it survives window state changes.
+- Behavior:
+  - `Window.StateChanged == Minimized` → hide from taskbar (`ShowInTaskbar = false`) and show tray icon.
+  - `Window.Closing` → cancel close, minimize to tray instead. The app only truly exits via tray context menu “Beenden”.
+  - Tray tooltip: `AT Panther\n<status>` where status is the latest monitor status, or “Gestoppt” if not running.
+  - Double-click tray icon → restore window and bring to front.
+  - Right-click context menu:
+    - “Öffnen” → restore window and bring to front.
+    - “Beenden” → stop monitor, dispose tray icon, shutdown app.
+  - On window close/exit: dispose `NotifyIcon`.
+
+### 3. Error notifications
+- Use `System.Windows.Forms.NotifyIcon` balloon tips.
+  - Rationale: no extra NuGet packages, works reliably from a self-contained WPF/.NET 8 EXE.
+  - If native Win10 toast is desired later, we can switch to `CommunityToolkit.WinUI.Notifications`.
+- Trigger notifications for:
+  - Login failure
+  - Repeated data-query failures leading to pause
+  - Booking failure
+  - Unhandled exceptions
+- Do **not** notify on every single retry to avoid spam.
+- Use `BalloonTipTitle`, `BalloonTipText`, `BalloonTipIcon` with a reasonable timeout (e.g., 5 seconds).
+- If the app is minimized to tray, the balloon is still shown by Windows.
+- If multiple errors occur in quick succession, Windows may suppress duplicates; this is acceptable.
+
+## Project changes
+- `ATPanther.csproj`:
+  - Add `<UseWindowsForms>true</UseWindowsForms>`.
+- `App.xaml.cs`:
+  - Add `using System.Windows.Forms;`.
+  - Initialize `NotifyIcon` with icon, tooltip, context menu, and event handlers.
+  - Add a public helper `UpdateTrayTooltip(string status)` that `MainWindow` can call.
+  - Add a public helper `ShowTrayNotification(string title, string text)` for error notifications.
+  - Handle `NotifyIcon` double-click to restore window.
+  - Dispose `NotifyIcon` in `OnExit`.
+- `MainWindow.xaml.cs`:
+  - Wire `StateChanged` to minimize-to-tray logic.
+  - Wire `Closing` to cancel close and minimize to tray instead.
+  - Wire monitor status changes to update tray tooltip via `App.Current` cast or exposed helper.
+  - Add “Verlauf löschen” button on “Haupt” tab pointing to `OnClearClicked`.
+- `MainWindow.xaml`:
+  - Add “Verlauf löschen” button in the “Haupt” tab, below the monitor controls.
+- `MonitorService.cs`:
+  - On error/pause/login failure, call `FileLogger.Error` and request a tray notification via `App.Current.ShowTrayNotification(...)`.
+  - Do **not** call tray notification on every retry; only on failure-to-pause transition and booking failure.
+
+## Out of scope / explicitly deferred
+- Native Win10 toast via `CommunityToolkit.WinUI.Notifications`.
+- Minimize-to-tray as user-toggleable setting (default on for now; can be made configurable later).
+- Tray icon with dynamic data volume badge (tooltip text is sufficient for now).
+
+## Validation
+- Build: `dotnet build ATPanther.sln -c Release` succeeds.
+- CI: push → GitHub Actions `windows.yml` → publish artifact.
+- Manual test:
+  - Minimize window → tray icon appears, taskbar entry disappears.
+  - Hover tray icon → tooltip shows status.
+  - Double-click tray icon → window restores.
+  - Right-click tray icon → “Öffnen” / “Beenden” work.
+  - Trigger a login failure or pause → balloon notification appears.
+  - “Verlauf löschen” on “Haupt” tab clears history with confirmation.
+  - Close button (X) minimizes to tray instead of closing; only “Beenden” from tray exits.
 
 ## Open questions
-- None. The monitor loop is confirmed running; the issue is diagnosable with the planned file-log instrumentation.
+- None. Proceed with implementation.
