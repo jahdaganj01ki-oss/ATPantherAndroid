@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using ATPanther.Core;
 using Microsoft.Win32;
+using System.ComponentModel;
 
 namespace ATPanther;
 
@@ -44,15 +45,14 @@ public partial class MainWindow : Window
                 }
             };
 
-            Closing += (_, _) =>
+            Closing += (_, e) =>
             {
                 if (WindowState == WindowState.Minimized)
                 {
-                    // Already minimized, let tray handle it
                     return;
                 }
-                // Minimize to tray instead of closing
                 WindowState = WindowState.Minimized;
+                e.Cancel = true;
             };
 
             LoadSettings();
