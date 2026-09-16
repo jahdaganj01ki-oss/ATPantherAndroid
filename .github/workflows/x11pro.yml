@@ -88,3 +88,4 @@ jobs:
           name: AT-Panther-X11Pro-release-apk
           path: "Ulefone Power Armor X11Pro/AT Panther Ulefone Power Armor X11Pro.apk"
           retention-days: 14
+# Trigger build for release
