@@ -22,15 +22,43 @@ public partial class MainWindow : Window
             FileLogger.Info("MainWindow initialized.");
 
             _monitor = new MonitorService(_db, _state);
-            _monitor.StatusChanged += (t, _) => Dispatcher.Invoke(() => TvStatus.Text = t);
+            _monitor.StatusChanged += (t, _) => Dispatcher.Invoke(() =>
+            {
+                TvStatus.Text = t;
+                App.UpdateTrayTooltip(t);
+            });
             _monitor.LogAdded += _ => Dispatcher.Invoke(RefreshLog);
             _monitor.Paused += () => Dispatcher.Invoke(() =>
+            {
                 MessageBox.Show("⛔ AT Panther pausiert nach wiederholten Fehlern. Zum Fortsetzen zweimal auf Start tippen.",
-                    "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning));
+                    "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning);
+                App.ShowTrayNotification("AT Panther", "Monitor pausiert nach wiederholten Fehlern");
+            });
+
+            StateChanged += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized)
+                {
+                    ShowInTaskbar = false;
+                    Hide();
+                }
+            };
+
+            Closing += (_, _) =>
+            {
+                if (WindowState == WindowState.Minimized)
+                {
+                    // Already minimized, let tray handle it
+                    return;
+                }
+                // Minimize to tray instead of closing
+                WindowState = WindowState.Minimized;
+            };
 
             LoadSettings();
             RefreshLog();
             _uiReady = true;
+            App.UpdateTrayTooltip("Gestoppt");
             FileLogger.Info("MainWindow UI ready.");
         }
         catch (Exception ex)

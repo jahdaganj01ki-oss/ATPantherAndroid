@@ -32,6 +32,7 @@
               <TextBlock x:Name="TvStatus" Text="Gestoppt" Foreground="#B0B0B0" TextWrapping="Wrap" Margin="0,0,0,8"/>
               <Button x:Name="BtnToggle" Content="Monitor starten" Background="#9E9E9E" Foreground="#000000" Padding="8" Click="OnToggleClicked"/>
               <CheckBox x:Name="ChkAutostart" Content="Autostart mit Windows" Foreground="#B0B0B0" Margin="0,8,0,0" Checked="OnAutostartChanged" Unchecked="OnAutostartChanged"/>
+              <Button x:Name="BtnClearHistory" Content="Verlauf löschen" Background="#9E9E9E" Foreground="#000000" Padding="8" Margin="0,8,0,0" Click="OnClearClicked"/>
             </StackPanel>
           </GroupBox>
         </StackPanel>

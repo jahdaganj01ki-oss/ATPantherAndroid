@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>ATPanther</AssemblyName>
     <RootNamespace>ATPanther</RootNamespace>
     <VersionPrefix>1.5</VersionPrefix>
@@ -17,6 +18,7 @@
     <Resource Include="Assets\icon.ico" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <Using Remove="System.Windows.Forms" />
   </ItemGroup>
 
 </Project>

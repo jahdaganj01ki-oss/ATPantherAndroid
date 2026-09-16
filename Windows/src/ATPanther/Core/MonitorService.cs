@@ -55,6 +55,7 @@ public sealed class MonitorService
             Status($"Login fehlgeschlagen: {login.Error}");
             Log("CHECK", 0, $"Login fehlgeschlagen: {login.Error}");
             FileLogger.Warning($"Monitor: login failed error={login.Error}");
+            App.ShowTrayNotification("AT Panther", $"Login fehlgeschlagen: {login.Error}");
             Stop();
             return;
         }
@@ -103,6 +104,7 @@ public sealed class MonitorService
                         Log("CHECK", 0, "⛔ Monitor pausiert nach wiederholten Fehlern. Manuell neu starten.");
                         Paused?.Invoke();
                         FileLogger.Warning("Monitor: paused after repeated failures");
+                        App.ShowTrayNotification("AT Panther", "Monitor pausiert nach wiederholten Fehlern");
                         Stop();
                         break;
                     }
@@ -150,6 +152,7 @@ public sealed class MonitorService
                     {
                         Log("BOOKING", (float)status.RemainingMb, $"❌ Buchung: {booking.StatusCode} {booking.Message}");
                         Status($"❌ Buchung fehlgeschlagen ({booking.StatusCode})", (float)status.RemainingMb);
+                        App.ShowTrayNotification("AT Panther", $"Buchung fehlgeschlagen ({booking.StatusCode})");
                     }
                 }
 
