@@ -14,6 +14,8 @@ import com.alditalk.panther.api.AldiTalkApi
 import com.alditalk.panther.auth.AuthService
 import com.alditalk.panther.data.AppDatabase
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.warning.NoTariffWarningManager
+import com.alditalk.panther.warning.WarningPrefs
 import kotlinx.coroutines.*
 
 /**
@@ -351,9 +353,9 @@ class MonitorService : Service() {
                 // jeden Flow-Emit + UI-Bind spuerbar -> App-Haenger.
                 logDao.deleteBeyondLimit(MAX_LOG_ROWS)
 
-                // Fetch data status
-                val status = api.getRemainingData(contractId)
-                if (status == null) {
+                // ── Unified fetch: Tarif-Status + Datenvolumen in EINEM Call ──
+                val tariffStatus = api.getTariffStatus(contractId)
+                if (tariffStatus == null) {
                     // Session wahrscheinlich abgelaufen -> re-login versuchen
                     val msg = "Datenvolumen konnte nicht abgefragt werden — re-login..."
                     Log.w(TAG, msg)
@@ -409,6 +411,51 @@ class MonitorService : Service() {
                         delay(intervalSec * 1000L)
                         continue
                     }
+                }
+
+                // ── Guthaben-Warnsystem auswerten (WLAN-Guard + Cooldown innen) ──
+                try {
+                    val diagMsg = "Tarif-Check: ${tariffStatus.debugInfo} | Offers: " +
+                            tariffStatus.allOfferNames.joinToString("; ").take(300)
+                    Log.d(TAG, diagMsg)
+                    logDao.insert(
+                        LogEntry(
+                            type = "CHECK",
+                            remainingMb = tariffStatus.remainingMb.toFloat(),
+                            message = diagMsg.take(500),
+                        )
+                    )
+                    if (tariffStatus.shouldWarn) {
+                        Log.w(TAG, "Tarif-Warnung: ${tariffStatus.debugInfo}")
+                    }
+                    val warned = NoTariffWarningManager.maybeWarn(this@MonitorService, tariffStatus)
+                    if (warned) {
+                        val rm = tariffStatus.remainingMb.takeIf { it >= 0 }?.toFloat() ?: -1f
+                        val warnMsg = "⚠ Warnung: ${NoTariffWarningManager.WARNING_TEXT.take(120)}"
+                        logDao.insert(LogEntry(type = "WARN", remainingMb = rm, message = warnMsg))
+                    } else if (!tariffStatus.shouldWarn) {
+                        WarningPrefs.clearIfTariffActive(this@MonitorService)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Tariff-Check Auswertung fehlgeschlagen (ignoriert)", e)
+                }
+
+                val status = tariffStatus.primaryDataStatus
+                if (status == null) {
+                    val noDataMsg = when {
+                        tariffStatus.rawOfferCount == 0 ->
+                            "Kein Tarif gebucht — keine Buchung möglich (Guthaben-Risiko)"
+                        tariffStatus.uncertain || (!tariffStatus.shouldWarn) ->
+                            "Tarif aktiv (unklassifiziert: ${tariffStatus.allOfferNames.joinToString("; ").take(150)}) — keine Auto-Buchung möglich, aber Guthaben geschützt"
+                        else ->
+                            "Kein Daten-Pack im aktiven Offer — Warnung aktiv, keine Auto-Buchung"
+                    }
+                    Log.w(TAG, noDataMsg)
+                    logDao.insert(LogEntry(type = "CHECK", remainingMb = tariffStatus.remainingMb.toFloat(), message = noDataMsg))
+                    updateNotification(noDataMsg)
+                    broadcastStatus(noDataMsg, tariffStatus.remainingMb.toFloat())
+                    delay(intervalSec * 1000L)
+                    continue
                 }
 
                 // Erfolgreicher Abruf -> Session lebt, Counter reset
@@ -601,6 +648,8 @@ class MonitorService : Service() {
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+        // Guthaben-Warnung (Heads-Up) – eigener Kanal mit HIGH Importance
+        com.alditalk.panther.warning.NoTariffWarningManager.ensureChannel(this)
     }
 
     /**

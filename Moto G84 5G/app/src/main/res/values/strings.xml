@@ -4,5 +4,7 @@
     <string name="channel_description">Überwacht ALDI Talk Datenvolumen im Hintergrund</string>
     <string name="channel_alerts_name">Monitor-Alarme</string>
     <string name="channel_alerts_description">Wichtige Hinweise, z. B. Pause nach fehlgeschlagenen Logins</string>
+    <string name="channel_no_tariff_warning_name">Guthaben-Warnung</string>
+    <string name="channel_no_tariff_warning_description">Warnt, wenn kein Datentarif gebucht ist und Datenvolumen direkt Guthaben kostet</string>
     <string name="monitor_start">Monitor starten</string>
 </resources>
