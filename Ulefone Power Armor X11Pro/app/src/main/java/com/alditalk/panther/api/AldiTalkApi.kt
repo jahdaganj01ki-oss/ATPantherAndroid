@@ -201,9 +201,25 @@ class AldiTalkApi(private val client: OkHttpClient) {
     /**
      * Reine JSON-zu-[TariffStatus] Konvertierung – isoliert für Tests.
      * Erwartet das bereits geparste JSONObject des Offers-Endpunkts.
+     *
+     * Fix 26.09.2026: Das echte BFF-Format war unbekannt – der erste Parser
+     * prüfte nur wenige Felder (offerName/offerType/offerSubType) und forderte
+     * für einen Basis-Tarif zwingend ein dataGrantAmount-Pack. Ergebnis: ein
+     * gebuchtes "Surf-Ticket Unlimited" (evtl. ohne dataGrantAmount, mit
+     * abweichenden Feldnamen) wurde weder als Basis noch als Add-on erkannt,
+     * die App warnte fälschlich. Neuer Ansatz:
+     *  1. Alle String-Felder des Offers rekursiv einsammeln (dumpOfferTexts)
+     *     und gegen erweiterte Keyword-Listen prüfen.
+     *  2. JEDES aktive subscribedOffer zählt als vorhandener Tarifschutz
+     *     (Fallback-Regel) – auch wenn es nicht klassifizierbar ist.
+     *  3. Nur wenn wirklich KEIN aktives Offer existiert, gilt shouldWarn.
+     *  4. Kann nichts klassifiziert werden, obwohl aktive Offers existieren,
+     *     wird uncertain=true gesetzt (keine Warnung, nur Diagnose).
      */
     fun parseOffersToTariffStatus(json: JSONObject): TariffStatus {
         val subscribedOffers = json.optJSONArray("subscribedOffers")
+            ?: json.optJSONArray("offers")
+            ?: json.optJSONArray("subscribed_offer")
             ?: JSONArray()
 
         if (subscribedOffers.length() == 0) {
@@ -222,85 +238,132 @@ class AldiTalkApi(private val client: OkHttpClient) {
         var hasActiveAddon = false
         val baseNames = mutableListOf<String>()
         val addonNames = mutableListOf<String>()
+        val allNames = mutableListOf<String>()
+        var anyActive = false
+        var anyClassified = false
         var remainingMb: Double = -1.0
         var primaryStatus: DataStatus? = null
         var primaryRemainingKb = -1L
 
         for (i in 0 until subscribedOffers.length()) {
-            val offer = subscribedOffers.getJSONObject(i)
-            val offerId = offer.optString("offerId", "")
-            val offerName = offer.optString("offerName",
-                offer.optString("displayName",
-                    offer.optString("name", "")))
-            val offerType = offer.optString("offerType", offer.optString("type", ""))
-            val offerSubType = offer.optString("offerSubType", offer.optString("subType", ""))
-            val status = offer.optString("status", offer.optString("state", offer.optString("offerStatus", "")))
-            val active = TariffEvaluator.isActiveStatus(status)
+            val offer = subscribedOffers.optJSONObject(i) ?: continue
+            val offerId = offer.optString("offerId", offer.optString("id", ""))
+            val offerName = firstNonBlank(
+                offer.optString("offerName", ""),
+                offer.optString("displayName", ""),
+                offer.optString("marketingName", ""),
+                offer.optString("productName", ""),
+                offer.optString("name", ""),
+                offer.optString("title", ""),
+                offer.optString("label", ""),
+            )
+            val displayName = offerName.ifEmpty { offerId.ifEmpty { "offer#$i" } }
+            allNames.add(displayName)
 
-            val isAddon = TariffEvaluator.isAddonOffer(
-                offerName.takeIf { it.isNotEmpty() },
-                offerId.takeIf { it.isNotEmpty() },
-                offerType.takeIf { it.isNotEmpty() },
-                offerSubType.takeIf { it.isNotEmpty() },
+            val status = firstNonBlank(
+                offer.optString("status", ""),
+                offer.optString("state", ""),
+                offer.optString("offerStatus", ""),
+                offer.optString("subscriptionStatus", ""),
+                offer.optString("lifecycleStatus", ""),
+            )
+            val active = TariffEvaluator.isActiveStatus(status)
+            if (active) anyActive = true
+
+            // Gesamten Offer-Text einsammeln (alle String-Felder rekursiv) –
+            // fängt auch unerwartete Feldnamen wie "marketingName" ab.
+            val fullText = dumpOfferTexts(offer)
+            val isAddon = TariffEvaluator.isAddonOffer(offerName, offerId, fullText)
+            val looksBase = TariffEvaluator.isBaseOffer(offerName, offerId, fullText)
+
+            Log.d(
+                TAG,
+                "Offer[$i] id=$offerId name=$offerName status=$status active=$active " +
+                    "isAddon=$isAddon looksBase=$looksBase keys=${offer.keys().asSequence().toList()}"
             )
 
-            Log.d(TAG, "Offer[$i] id=$offerId name=$offerName type=$offerType subType=$offerSubType status=$status active=$active isAddon=$isAddon")
-
-            if (isAddon) {
-                if (active) {
-                    hasActiveAddon = true
-                }
-                addonNames.add(offerName.ifEmpty { offerId })
-                continue
-            }
-
-            // Alles Nicht-Add-on => potenzieller Basis-Tarif, wenn es Daten-Packs enthält
-            // oder offerType auf Tarif hindeutet und Status aktiv ist.
+            // dataGrantAmount-Pack suchen (für Restvolumen + Buchungs-IDs)
             val pack = offer.optJSONArray("pack")
+                ?: offer.optJSONArray("packs")
+                ?: offer.optJSONArray("balances")
             var hasDataGrant = false
             var kbForThisOffer = -1L
             if (pack != null) {
                 for (j in 0 until pack.length()) {
-                    val p = pack.getJSONObject(j)
-                    if (p.optString("balanceAttributeReference") == "dataGrantAmount") {
-                        hasDataGrant = true
-                        val allocated = p.optLong("allocated", 0L)
-                        val used = p.optLong("used", 0L)
-                        kbForThisOffer = allocated - used
-                        break
+                    val p = pack.optJSONObject(j) ?: continue
+                    val ref = p.optString("balanceAttributeReference",
+                        p.optString("balanceType",
+                            p.optString("unit", "")))
+                    if (ref == "dataGrantAmount" || ref.lowercase().contains("data")) {
+                        // Nur zählen wenn allocated/used vorhanden sind
+                        if (p.has("allocated") || p.has("used") || p.has("remaining")) {
+                            hasDataGrant = true
+                            val allocated = p.optLong("allocated", p.optLong("total", 0L))
+                            val used = p.optLong("used", 0L)
+                            val remaining = p.optLong("remaining", allocated - used)
+                            kbForThisOffer = if (p.has("remaining")) remaining else allocated - used
+                            break
+                        }
                     }
                 }
             }
 
-            val isBaseCandidate = hasDataGrant || offerType.lowercase().contains("data")
-                    || offerSubType.lowercase().contains("data")
-
-            if (isBaseCandidate && active) {
-                hasBaseTariff = true
-                baseNames.add(offerName.ifEmpty { offerId })
+            if (isAddon) {
+                anyClassified = true
+                if (active) hasActiveAddon = true
+                addonNames.add(if (active) displayName else "$displayName (inaktiv)")
+                // Auch Add-ons können Buchungs-IDs liefern (Surf-Ticket nachbuchen)
                 if (kbForThisOffer >= 0 && primaryRemainingKb < 0) {
                     primaryRemainingKb = kbForThisOffer
                     remainingMb = kbForThisOffer / 1024.0
-                    // DataStatus für Kompatibilität mit book1Gb
-                    primaryStatus = try {
-                        DataStatus(
-                            remainingMb = remainingMb,
-                            offerId = offer.getString("offerId"),
-                            subscriptionId = offer.getString("subscriptionId"),
-                            resourceId = offer.getString("resourceId"),
-                            onDemandAmount = offer.optString("onDemandAmountValueUid", ""),
-                            refillThreshold = offer.optString("refillThresholdValueUid", ""),
-                        )
-                    } catch (_: Exception) { null }
+                    primaryStatus = buildDataStatus(offer, remainingMb)
                 }
-            } else if (isBaseCandidate && !active) {
-                // Abgelaufener Basis-Tarif zählt als inaktiv – nicht als aktiver Tarif
-                baseNames.add("${offerName.ifEmpty { offerId }} (expired)")
+                continue
+            }
+
+            val isBaseCandidate = hasDataGrant || looksBase ||
+                    fullText.lowercase().contains("data")
+
+            if (isBaseCandidate) {
+                anyClassified = true
+                if (active) {
+                    hasBaseTariff = true
+                    baseNames.add(displayName)
+                } else {
+                    baseNames.add("$displayName (inaktiv)")
+                }
+                if (kbForThisOffer >= 0 && primaryRemainingKb < 0) {
+                    primaryRemainingKb = kbForThisOffer
+                    remainingMb = kbForThisOffer / 1024.0
+                    primaryStatus = buildDataStatus(offer, remainingMb)
+                }
+                continue
+            }
+
+            // Weder Add-on noch Basis erkennbar:
+            if (active) {
+                // Fallback-Regel: AKTIVES subscribedOffer = Tarifschutz vorhanden.
+                // Lieber keine Warnung als einen Fehlalarm (Fix 26.09.2026).
+                hasBaseTariff = true
+                baseNames.add("$displayName (unklassifiziert, aktiv→Schutz)")
+                if (kbForThisOffer >= 0 && primaryRemainingKb < 0) {
+                    primaryRemainingKb = kbForThisOffer
+                    remainingMb = kbForThisOffer / 1024.0
+                    primaryStatus = buildDataStatus(offer, remainingMb)
+                }
+            } else {
+                baseNames.add("$displayName (inaktiv, unklassifiziert)")
             }
         }
 
+        // Unsicher-Fall: aktive Offers vorhanden, aber nichts klassifizierbar
+        // (sollte durch die Fallback-Regel oben nicht mehr auftreten – dient als
+        // Sicherheitsnetz, falls sich das Format künftig ändert).
+        val uncertain = anyActive && !anyClassified && !hasBaseTariff && !hasActiveAddon
+
         val debug = "offers=${subscribedOffers.length()} base=$hasBaseTariff addon=$hasActiveAddon " +
-                "baseNames=$baseNames addonNames=$addonNames remaining=${if (remainingMb >= 0) "%.1f".format(remainingMb) else "?"}MB"
+                "uncertain=$uncertain baseNames=$baseNames addonNames=$addonNames " +
+                "remaining=${if (remainingMb >= 0) "%.1f".format(remainingMb) else "?"}MB"
 
         Log.d(TAG, "TariffStatus -> $debug")
 
@@ -313,7 +376,62 @@ class AldiTalkApi(private val client: OkHttpClient) {
             rawOfferCount = subscribedOffers.length(),
             debugInfo = debug,
             primaryDataStatus = primaryStatus,
+            uncertain = uncertain,
+            allOfferNames = allNames.toList(),
         )
+    }
+
+    /** Erste nicht-leere Zeichenkette aus der Liste. */
+    private fun firstNonBlank(vararg values: String): String =
+        values.firstOrNull { it.isNotBlank() } ?: ""
+
+    /**
+     * Sammelt alle String-/Zahlen-/Boolean-Werte eines Offer-JSON rekursiv
+     * (max. Tiefe 3) zu einem durchsuchbaren Text. Fängt Feldnamen ab, die
+     * der Parser nicht explizit kennt (z.B. marketingName, productName).
+     */
+    private fun dumpOfferTexts(obj: JSONObject, depth: Int = 0): String {
+        if (depth > 3) return ""
+        val sb = StringBuilder()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            // Technische IDs/Correlations-IDs verwässern nur die Suche
+            if (k.equals("subscriptionId", true) || k.equals("resourceId", true) ||
+                k.equals("contractId", true) || k.lowercase().contains("correlation") ||
+                k.lowercase().contains("transaction")
+            ) continue
+            when (val v = obj.opt(k)) {
+                is JSONObject -> sb.append(' ').append(dumpOfferTexts(v, depth + 1))
+                is JSONArray -> {
+                    for (idx in 0 until minOf(v.length(), 20)) {
+                        val el = v.opt(idx)
+                        when (el) {
+                            is JSONObject -> sb.append(' ').append(dumpOfferTexts(el, depth + 1))
+                            else -> if (el != null) sb.append(' ').append(el.toString())
+                        }
+                    }
+                }
+                else -> if (v != null && v.toString().isNotBlank()) {
+                    sb.append(' ').append(k).append(':').append(v.toString())
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    /** Baut ein DataStatus für die Auto-Buchung, oder null wenn IDs fehlen. */
+    private fun buildDataStatus(offer: JSONObject, remainingMb: Double): DataStatus? {
+        return try {
+            DataStatus(
+                remainingMb = remainingMb,
+                offerId = offer.optString("offerId", offer.optString("id", "")),
+                subscriptionId = offer.optString("subscriptionId", ""),
+                resourceId = offer.optString("resourceId", ""),
+                onDemandAmount = offer.optString("onDemandAmountValueUid", ""),
+                refillThreshold = offer.optString("refillThresholdValueUid", ""),
+            )
+        } catch (_: Exception) { null }
     }
 
     /** Book 1 GB additional data. */

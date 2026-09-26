@@ -63,9 +63,15 @@ object NoTariffWarningManager {
     fun maybeWarn(context: Context, status: TariffStatus): Boolean {
         Log.d(TAG, "maybeWarn status=$status")
 
-        // 1) Tarif-Bedingung: nur wenn wirklich kein Tarif & kein Add-on
+        // 1) Tarif-Bedingung: nur wenn wirklich kein Tarif & kein Add-on.
+        // Unsichere Fälle (aktive Offers, aber unbekanntes Format) warnen NICHT,
+        // sondern loggen nur diagnostisch – Fix 26.09.2026 (Surf-Ticket-Fehlalarm).
         if (!status.shouldWarn) {
-            Log.d(TAG, "maybeWarn: Tarif vorhanden -> clear throttle + cancel notification")
+            if (status.uncertain) {
+                Log.w(TAG, "maybeWarn: UNSICHER – aktive Offers, aber unklassifizierbar, KEINE Warnung (${status.debugInfo})")
+            } else {
+                Log.d(TAG, "maybeWarn: Tarif vorhanden -> clear throttle + cancel notification")
+            }
             WarningPrefs.clearIfTariffActive(context)
             // Falls vorher eine Warnung hing, zurückziehen
             try {

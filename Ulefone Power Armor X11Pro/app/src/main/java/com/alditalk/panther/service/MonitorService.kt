@@ -434,7 +434,20 @@ class MonitorService : Service() {
                 }
 
                 // ── Guthaben-Warnsystem auswerten (WLAN-Guard + Cooldown innen) ──
+                // Fix 26.09.2026: Diagnostik mit allen Offer-Namen in den Log-Export
+                // schreiben, damit Fehlklassifikationen (z.B. Surf-Ticket Unlimited
+                // mit unerwarteten Feldnamen) ohne Logcat sichtbar werden.
                 try {
+                    val diagMsg = "Tarif-Check: ${tariffStatus.debugInfo} | Offers: " +
+                            tariffStatus.allOfferNames.joinToString("; ").take(300)
+                    Log.d(TAG, diagMsg)
+                    logDao.insert(
+                        LogEntry(
+                            type = "CHECK",
+                            remainingMb = tariffStatus.remainingMb.toFloat(),
+                            message = diagMsg.take(500),
+                        )
+                    )
                     if (tariffStatus.shouldWarn) {
                         Log.w(TAG, "Tarif-Warnung: ${tariffStatus.debugInfo}")
                     }
@@ -451,15 +464,20 @@ class MonitorService : Service() {
                 }
 
                 // DataStatus für Auto-Buchung ableiten (aus demselben JSON).
-                // Fall: kein Basis-Tarif/kein Pack → primaryDataStatus == null → keine Buchung möglich,
-                // aber Warnung wurde oben bereits ausgelöst.
+                // Fall: kein Basis-Tarif/kein Pack → primaryDataStatus == null.
+                // Wichtig: Nur warnen, wenn shouldWarn (unsichere Fälle NICHT als
+                // "kein Tarif" darstellen – Fix 26.09.2026).
                 val status = tariffStatus.primaryDataStatus
                 if (status == null) {
-                    // Kein buchbares Volumen vorhanden (z.B. prepaid ohne Tarif)
-                    val noDataMsg = if (tariffStatus.rawOfferCount == 0)
-                        "Kein Tarif gebucht — keine Buchung möglich (Guthaben-Risiko)"
-                    else
-                        "Kein Daten-Pack im aktiven Offer — Warnung aktiv, keine Auto-Buchung"
+                    // Kein buchbares Volumen vorhanden.
+                    val noDataMsg = when {
+                        tariffStatus.rawOfferCount == 0 ->
+                            "Kein Tarif gebucht — keine Buchung möglich (Guthaben-Risiko)"
+                        tariffStatus.uncertain || (!tariffStatus.shouldWarn) ->
+                            "Tarif aktiv (unklassifiziert: ${tariffStatus.allOfferNames.joinToString("; ").take(150)}) — keine Auto-Buchung möglich, aber Guthaben geschützt"
+                        else ->
+                            "Kein Daten-Pack im aktiven Offer — Warnung aktiv, keine Auto-Buchung"
+                    }
                     Log.w(TAG, noDataMsg)
                     logDao.insert(LogEntry(type = "CHECK", remainingMb = tariffStatus.remainingMb.toFloat(), message = noDataMsg))
                     updateNotification(noDataMsg)

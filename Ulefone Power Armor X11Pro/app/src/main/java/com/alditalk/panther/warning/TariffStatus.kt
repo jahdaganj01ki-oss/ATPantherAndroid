@@ -24,9 +24,22 @@ data class TariffStatus(
     val rawOfferCount: Int = 0,
     val debugInfo: String = "",
     val primaryDataStatus: com.alditalk.panther.api.DataStatus? = null,
+    /**
+     * true wenn subscribedOffers existieren, mindestens ein Offer aktiv ist,
+     * aber KEINES klassifiziert werden konnte (weder Basis noch Add-on).
+     * In diesem Fall ist die Lage unsicher (unbekanntes JSON-Format) und es
+     * darf NICHT gewarnt werden (kein Fehlalarm) – nur diagnostisch loggen.
+     * Siehe Fix 26.09.2026: "Surf-Ticket Unlimited" wurde nicht erkannt.
+     */
+    val uncertain: Boolean = false,
+    /** Alle erkannten Offer-Namen/IDs (auch unklassifizierte) für Diagnose im Log-Export. */
+    val allOfferNames: List<String> = emptyList(),
 ) {
-    /** True => Warnbedingungen erfüllt (kein Basis UND kein Add-on). */
-    val shouldWarn: Boolean get() = !hasBaseTariff && !hasActiveAddon
+    /**
+     * True => Warnbedingungen erfüllt (kein Basis UND kein Add-on UND nicht unsicher).
+     * Unsichere Fälle (aktive Offers, aber unbekanntes Format) warnen bewusst NICHT.
+     */
+    val shouldWarn: Boolean get() = !hasBaseTariff && !hasActiveAddon && !uncertain
 
     companion object {
         /** Fehlerfall – konservativ: null zurückgeben statt Fehlalarm. */
@@ -46,38 +59,58 @@ object TariffEvaluator {
 
     /** Keywords die ein Angebot als Zusatzoption / Surf-Ticket klassifizieren. */
     private val ADDON_KEYWORDS = listOf(
-        "surf-ticket", "surf ticket", "surfticket",
-        "dayflat", "tagesflat", "tages-flat",
+        "surf-ticket", "surf ticket", "surfticket", "surf",
+        "dayflat", "day flat", "tagesflat", "tages-flat", "tages flat",
         "unlimited",
-        "addon", "add-on", "zusatz", "on demand", "ondemand",
-        "data snack", "snack", "extra",
-        "internetflat", "internet flat",
-        "speed bucket", "bucket"
+        "addon", "add-on", "zusatz", "zussatz", "option",
+        "on demand", "ondemand", "on-demand",
+        "data snack", "snack", "extra", "nachbuch",
+        "internetflat", "internet flat", "internet-flat",
+        "speed bucket", "bucket", "speed",
+        "flat", "ticket", "pass"
+    )
+
+    /** Begriffsfragmente die auf einen Basis-Tarif hindeuten. */
+    private val BASE_KEYWORDS = listOf(
+        "kombi", "kombi-paket", "paket", "package",
+        "talk", "aldi talk",
+        "starter", "basic", "basis", "base",
+        "tarif", "tariff",
+        "monat", "month", "28 tage", "30 tage",
+        "prepaid"
     )
 
     /** Statuswerte die ein Angebot als inaktiv/expired markieren. */
     private val INACTIVE_STATUS = setOf(
-        "expired", "inactive", "cancelled", "canceled", "terminated", "deactivated", "closed"
+        "expired", "inactive", "cancelled", "canceled", "terminated", "deactivated", "closed",
+        "ausgelaufen", "abgelaufen", "gekündigt", "gekundigt", "inaktiv", "beendet", "deaktiviert"
     )
 
     /**
      * Klassifiziert ein einzelnes Offer-JSON-Objekt.
-     * Heuristik: offerName/offerId/offerType/offerSubType auf Keywords prüfen,
-     * zusätzlich pack[] nach dataGrantAmount absuchen.
+     *
+     * Fix 26.09.2026: Der Aufrufer übergibt jetzt das komplette Offer-JSON
+     * als Dump (alle String-Felder rekursiv), daher wird auch ein Surf-Ticket
+     * erkannt, dessen Name in einem unerwarteten Feld steht
+     * (z.B. "marketingName" statt "offerName").
      */
-    fun isAddonOffer(
-        offerName: String?,
-        offerId: String?,
-        offerType: String?,
-        offerSubType: String?,
-    ): Boolean {
-        val haystack = listOfNotNull(offerName, offerId, offerType, offerSubType)
-            .joinToString(" ").lowercase()
+    fun isAddonOffer(vararg texts: String?): Boolean {
+        val haystack = texts.filterNotNull().joinToString(" ").lowercase()
         return ADDON_KEYWORDS.any { haystack.contains(it) }
+    }
+
+    /** True wenn der Text auf einen Basis-Tarif hindeutet. */
+    fun isBaseOffer(vararg texts: String?): Boolean {
+        val haystack = texts.filterNotNull().joinToString(" ").lowercase()
+        return BASE_KEYWORDS.any { haystack.contains(it) }
     }
 
     fun isActiveStatus(status: String?): Boolean {
         if (status.isNullOrBlank()) return true // fehlendes Feld => als aktiv werten (kein Fehlalarm)
-        return status.lowercase() !in INACTIVE_STATUS
+        val lower = status.lowercase()
+        // Teilexakte Prüfung: "active" in "Subscription is active since..." muss zählen,
+        // "inactive" enthält aber auch "active" -> daher zuerst Inaktiv-Check.
+        if (INACTIVE_STATUS.any { lower.contains(it) }) return false
+        return true
     }
 }
