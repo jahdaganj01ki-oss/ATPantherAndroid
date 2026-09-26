@@ -90,8 +90,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(this, "Benachrichtigungen verweigert — Warn-Dialog erscheint dennoch", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // POST_NOTIFICATIONS (Android 13+) anfragen – ohne sie können Guthaben-Warnungen
+        // nur als Dialog gezeigt werden, nicht als Heads-Up Notification.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val perm = android.Manifest.permission.POST_NOTIFICATIONS
+            if (checkSelfPermission(perm) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(perm)
+            }
+        }
         // Statusleiste transparent + helle Icons erzwingen (Theme-Absicherung),
         // damit die Benachrichtigungszeile normal sichtbar bleibt.
         window.statusBarColor = android.graphics.Color.TRANSPARENT

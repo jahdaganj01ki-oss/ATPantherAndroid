@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Warnsystem Guthaben: Netzwerkzustand & mobile Daten prüfen (WLAN-Guard) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Hintergrundprozess fuer das X11Pro (Android 12): Wakelock als Fallback -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -63,6 +65,25 @@
             <intent-filter>
                 <action android:name="com.alditalk.panther.RESTART_MONITOR" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Guthaben-Warnsystem (kein Tarif + kein Add-on) -->
+        <activity
+            android:name=".warning.WarningDialogActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ATPanther.Black"
+            android:launchMode="singleTop"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true" />
+
+        <receiver
+            android:name=".warning.WarningActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.alditalk.panther.WARNING_CONTINUE" />
+                <action android:name="com.alditalk.panther.WARNING_DISABLE_DATA" />
             </intent-filter>
         </receiver>
 

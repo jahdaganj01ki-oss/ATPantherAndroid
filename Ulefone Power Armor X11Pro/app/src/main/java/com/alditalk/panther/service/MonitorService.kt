@@ -14,6 +14,8 @@ import com.alditalk.panther.api.AldiTalkApi
 import com.alditalk.panther.auth.AuthService
 import com.alditalk.panther.data.AppDatabase
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.warning.NoTariffWarningManager
+import com.alditalk.panther.warning.WarningPrefs
 import kotlinx.coroutines.*
 
 /**
@@ -372,10 +374,15 @@ class MonitorService : Service() {
                     }
                 }
 
-                // Fetch data status
-                val status = api.getRemainingData(contractId)
-                if (status == null) {
-                    // Session wahrscheinlich abgelaufen -> re-login versuchen
+                // ── Unified fetch: Tarif-Status + Datenvolumen in EINEM Call ──
+                // GET /offers liefert subscribedOffers[]; daraus leiten wir:
+                //  1) TariffStatus (shouldWarn = !hasBase && !hasAddon) für Guthaben-Warnsystem
+                //  2) DataStatus (remainingMb + booking-IDs) für Auto-Buchung
+                // Vorteil: nur 1 statt 2 HTTP-Calls pro Loop, schont BFF-Rate-Limit.
+                val tariffStatus = api.getTariffStatus(contractId)
+
+                if (tariffStatus == null) {
+                    // Session wahrscheinlich abgelaufen oder Netzwerkfehler -> re-login versuchen
                     val msg = "Datenvolumen konnte nicht abgefragt werden — re-login..."
                     Log.w(TAG, msg)
                     logDao.insert(LogEntry(type = "CHECK", remainingMb = -1f, message = msg))
@@ -386,10 +393,6 @@ class MonitorService : Service() {
                     if (session != null) {
                         consecutiveLoginFailures = 0
                         reloginsWithoutPoll++
-                        // Endlosschleifen-Schutz: Klappt der Login zwar, aber die
-                        // Datenafrage weiterhin nicht – ohne Cap wuerde hier
-                        // jede Iteration eine komplette Login-Kette aufs Portal
-                        // feuern => temporaere Account-Sperre.
                         if (reloginsWithoutPoll >= MAX_RELOGINS_WITHOUT_POLL) {
                             val stopMsg = "⛔ $reloginsWithoutPoll Re-Logins ohne erfolgreiche Abfrage — Monitor pausiert, bitte manuell neu starten"
                             Log.e(TAG, stopMsg)
@@ -407,10 +410,6 @@ class MonitorService : Service() {
                         logDao.insert(LogEntry(type = "CHECK", message = reloginMsg))
                         updateNotification(reloginMsg)
                         broadcastStatus(reloginMsg, -1f)
-                        // Kein delay: direkt erneut abfragen und ggf. nachbuchen.
-                        // Schutz vor Login-Sturm: MAX_RELOGINS_WITHOUT_POLL-Cap oben
-                        // pausiert bei wiederholt fehlschlagender Abfrage; der Login
-                        // selbst (PoW + Redirect-Kette) dauert bereits Sekunden.
                         continue
                     } else {
                         consecutiveLoginFailures++
@@ -432,6 +431,42 @@ class MonitorService : Service() {
                         delay(intervalSec * 1000L)
                         continue
                     }
+                }
+
+                // ── Guthaben-Warnsystem auswerten (WLAN-Guard + Cooldown innen) ──
+                try {
+                    if (tariffStatus.shouldWarn) {
+                        Log.w(TAG, "Tarif-Warnung: ${tariffStatus.debugInfo}")
+                    }
+                    val warned = NoTariffWarningManager.maybeWarn(this@MonitorService, tariffStatus)
+                    if (warned) {
+                        val rm = tariffStatus.remainingMb.takeIf { it >= 0 }?.toFloat() ?: -1f
+                        val warnMsg = "⚠ Warnung: ${NoTariffWarningManager.WARNING_TEXT.take(120)}"
+                        logDao.insert(LogEntry(type = "WARN", remainingMb = rm, message = warnMsg))
+                    } else if (!tariffStatus.shouldWarn) {
+                        WarningPrefs.clearIfTariffActive(this@MonitorService)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Tariff-Check Auswertung fehlgeschlagen (ignoriert)", e)
+                }
+
+                // DataStatus für Auto-Buchung ableiten (aus demselben JSON).
+                // Fall: kein Basis-Tarif/kein Pack → primaryDataStatus == null → keine Buchung möglich,
+                // aber Warnung wurde oben bereits ausgelöst.
+                val status = tariffStatus.primaryDataStatus
+                if (status == null) {
+                    // Kein buchbares Volumen vorhanden (z.B. prepaid ohne Tarif)
+                    val noDataMsg = if (tariffStatus.rawOfferCount == 0)
+                        "Kein Tarif gebucht — keine Buchung möglich (Guthaben-Risiko)"
+                    else
+                        "Kein Daten-Pack im aktiven Offer — Warnung aktiv, keine Auto-Buchung"
+                    Log.w(TAG, noDataMsg)
+                    logDao.insert(LogEntry(type = "CHECK", remainingMb = tariffStatus.remainingMb.toFloat(), message = noDataMsg))
+                    updateNotification(noDataMsg)
+                    broadcastStatus(noDataMsg, tariffStatus.remainingMb.toFloat())
+                    // Warten bis zum nächsten Poll; Warnsystem bleibt dank Cooldown/Snooze gedrosselt
+                    delay(intervalSec * 1000L)
+                    continue
                 }
 
                 // Erfolgreicher Abruf -> Session lebt, Counter reset
@@ -676,6 +711,8 @@ class MonitorService : Service() {
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+        // Guthaben-Warnung (Heads-Up) – eigener Kanal mit HIGH Importance
+        com.alditalk.panther.warning.NoTariffWarningManager.ensureChannel(this)
     }
 
     /**
