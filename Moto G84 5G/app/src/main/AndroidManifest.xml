@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Moto G84 5G (Android 13, MyUX): WakeLock als Fallback gegen Doze light/deep -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Bypass fuer App-Standby / Doze – oeffnet Whitelist-Dialog ("Uneingeschraenkt") -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- AlarmManager-Fallback fuer Intervall-Polling trotz Doze/Standby -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:name=".PantherApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ATPanther.Black"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!--
+          Moto-G84-Optimierung (Motorola Moto G84 5G, Snapdragon 695, Android 13, 120 Hz pOLED):
+           - launchMode=singleTask: erneutes Oeffnen (Launcher oder Notification)
+             bringt die laufende Instanz nach vorn, statt eine zweite Activity zu
+             stapeln (verhindert doppelte Services / Freeze beim Wiederaufnehmen).
+           - configChanges: Drehen baut die Activity nicht neu auf. Spart die komplette
+             Re-Inflation samt RecyclerView-Neuaufbau. Auf dem grossen 6,5" 1080x2400
+             120-Hz-pOLED besonders wichtig fuer fluessige 120-fps-Wisch-Animation
+             zwischen Haupt- und Verlauf-Seite (ViewPager2).
+             smallestScreenSize|layoutDirection: Auf Android 13 kann Drehen sonst trotz
+             orientation|screenSize einen Rebuild ausloesen – siehe auch onConfigurationChanged().
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".service.MonitorService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!--
+          WakeLock-Fallback-Empfaenger: AlarmManager kann via getBroadcast() den
+          Receiver ansprechen – dieser startet den MonitorService neu, damit
+          Motorola-Doze/App-Standby den Monitor nicht beendet.
+        -->
+        <receiver
+            android:name=".service.MonitorWakeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.alditalk.panther.RESTART_MONITOR" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

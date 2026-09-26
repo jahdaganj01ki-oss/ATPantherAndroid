@@ -1,6 +1,6 @@
 # AT Panther – ALDI Talk Auto-Refill
 
-Monorepo mit **drei Android-Varianten** von AT Panther: eine App, die das
+Monorepo mit **vier Android-Varianten** von AT Panther: eine App, die das
 ALDI-Talk-Datenvolumen überwacht und automatisch **1 GB** nachbucht, sobald der
 Restbestand unter die eingestellte Schwelle fällt (Standard: **850 MB**,
 Prüfintervall standardmäßig 60 Sekunden).
@@ -12,6 +12,7 @@ Prüfintervall standardmäßig 60 Sekunden).
 | `app/` + Root-Gradle-Projekt | **Android-App** (Basisversion) – gleicher Funktionsstand wie die Gerätevarianten (Freeze-Fixes, Login-Pause, monochromes Design) | `android.yml`, `build.yml` | `AT-Panther-debug-apk` bzw. `ATPanther-debug` |
 | [`Ulefone Power Armor X11Pro/`](Ulefone%20Power%20Armor%20X11Pro/README.md) | **Android-Gerätevariante** fürs Ulefone Power Armor X11Pro (Android 12, Helio G25) – Screenshot-UI (scrollfrei, Verlauf per Wisch), Freeze-Fixes + monochromem Design | `x11pro.yml` | `AT-Panther-X11Pro-debug-apk` (Datei: **`AT Panther Ulefone Power Armor X11Pro.apk`**) |
 | [`Redmi Note 9 Pro/`](Redmi%20Note%209%20Pro/README.md) | **Android-Gerätevariante** fürs Xiaomi Redmi Note 9 Pro (Android 11, MIUI, Snapdragon 720G) – Freeze-Fixes + monochromes Design + MIUI-Akku-Anleitung | `redmi-note-9-pro.yml` | `AT-Panther-RedmiNote9Pro-debug-apk` (Datei: **`AT Panther.apk`**) |
+| [`Moto G84 5G/`](Moto%20G84%205G/README.md) | **Android-Gerätevariante** fürs Motorola Moto G84 5G (Android 13, Snapdragon 695, 6,5" 120 Hz pOLED) – Freeze-Fixes + monochromes Design, Stock-Android-Optimierung | `motog84.yml` | `AT-Panther-MotoG84-debug-apk` (Datei: **`AT Panther Moto G84 5G.apk`**) |
 | [`Windows/`](Windows/README.md) | **Windows-Variante** (WPF, .NET 8) – Login/Abfrage/Auto-Nachbuchung 1:1 wie Ulefone-Variante | `windows.yml` | `AT-Panther-Windows-win-x64` (self-contained `.exe`) |
 
 Details, Build-Anleitungen und gerätespezifische Hinweise stehen in der
@@ -47,7 +48,7 @@ Einzelbenutzer-Gerät akzeptabel, aber bewusst wissen.
 
 ## Builds via GitHub Actions
 
-Die vier Workflows bauen bei Push auf `main`/`master` (teilweise
+Die fünf Workflows bauen bei Push auf `main`/`master` (teilweise
 pfadgefiltert) und per manuellem `workflow_dispatch`:
 
 | Workflow | Baut | Ergebnis |
@@ -56,6 +57,7 @@ pfadgefiltert) und per manuellem `workflow_dispatch`:
 | `build.yml` | Root-App | `app-debug.apk` (Artifact `ATPanther-debug`) |
 | `x11pro.yml` | X11Pro-Variante | **`AT Panther Ulefone Power Armor X11Pro.apk`** (Artifact `AT-Panther-X11Pro-debug-apk`) |
 | `redmi-note-9-pro.yml` | Redmi-Note-9-Pro-Variante | **`AT Panther.apk`** (Artifact `AT-Panther-RedmiNote9Pro-debug-apk`) |
+| `motog84.yml` | Moto-G84-5G-Variante | **`AT Panther Moto G84 5G.apk`** (Artifact `AT-Panther-MotoG84-debug-apk`) |
 
 Die fertigen APKs liegen im Tab **Actions → jeweiligen Run → Artifacts**.
 
@@ -66,15 +68,17 @@ Die fertigen APKs liegen im Tab **Actions → jeweiligen Run → Artifacts**.
 .\gradlew.bat assembleDebug                 # Root-App
 cd "Ulefone Power Armor X11Pro"; .\gradlew.bat assembleDebug   # X11Pro-Variante
 cd "Redmi Note 9 Pro"; .\gradlew.bat assembleDebug             # Redmi-Variante
+cd "Moto G84 5G"; .\gradlew.bat assembleDebug                   # Moto-G84-Variante
 ```
 
 ## Hinweise
 
 - Die **Gerätevarianten installieren sich parallel** zur Root-App und
   zueinander (eigene `applicationId` pro Variante:
-  `com.alditalk.panther.x11pro`, `com.alditalk.panther.redminote9pro`) –
+  `com.alditalk.panther.x11pro`, `com.alditalk.panther.redminote9pro`,
+  `com.alditalk.panther.motog845g`) –
   mehrere können gleichzeitig auf dem Gerät sein. Der App-Code
-  (Kotlin + Ressourcen) ist seit v1.1 in allen drei Varianten identisch;
+  (Kotlin + Ressourcen) ist seit v1.1 in allen vier Varianten identisch;
   die Root-App unterscheidet sich nur durch `applicationId`
   `com.alditalk.panther`, App-Name „AT Panther" und universale
   ABI-/Sprachauswahl. Die Varianten-READMEs beschreiben zusätzlich die
