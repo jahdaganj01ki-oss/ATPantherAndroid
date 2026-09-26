@@ -47,9 +47,33 @@ public partial class App : System.Windows.Application
     {
         if (_mainWindow == null) return;
 
+        Icon appIcon;
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
+            if (!File.Exists(iconPath))
+            {
+                // Fallback to root-level icon for single-file / portable builds
+                iconPath = Path.Combine(AppContext.BaseDirectory, "icon.ico");
+            }
+            if (File.Exists(iconPath))
+            {
+                appIcon = new System.Drawing.Icon(iconPath);
+            }
+            else
+            {
+                // Last resort: embedded resource or system icon
+                appIcon = System.Drawing.SystemIcons.Application;
+            }
+        }
+        catch
+        {
+            appIcon = System.Drawing.SystemIcons.Application;
+        }
+
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico")),
+            Icon = appIcon,
             Visible = true,
             Text = "AT Panther",
         };
@@ -80,6 +104,11 @@ public partial class App : System.Windows.Application
     private void RestoreMainWindow()
     {
         if (_mainWindow == null) return;
+        // Ensure tray icon stays visible
+        if (_trayIcon != null)
+        {
+            _trayIcon.Visible = true;
+        }
         _mainWindow.Dispatcher.Invoke(() =>
         {
             if (_mainWindow.WindowState == WindowState.Minimized)

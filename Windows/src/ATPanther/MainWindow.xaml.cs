@@ -42,6 +42,8 @@ public partial class MainWindow : Window
                 {
                     ShowInTaskbar = false;
                     Hide();
+                    // Ensure tray icon is visible after minimizing
+                    App.UpdateTrayTooltip(TvStatus.Text);
                 }
             };
 

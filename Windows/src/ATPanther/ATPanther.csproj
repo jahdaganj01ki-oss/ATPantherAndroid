@@ -15,7 +15,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Resource Include="Assets\icon.ico" />
+    <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest">
+      <Link>icon.ico</Link>
+    </Content>
+    <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest">
+      <Link>Assets\icon.ico</Link>
+    </Content>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <Using Remove="System.Windows.Forms" />
