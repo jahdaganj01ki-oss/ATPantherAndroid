@@ -340,16 +340,26 @@ class MonitorService : Service() {
         logDao.insert(LogEntry(type = "CHECK", message = "Vertrags-ID erkannt: $contractId"))
 
         var consecutiveLoginFailures = 0
+        // Redmi Note 9 Pro v1.2: DB-Trim NICHT bei jedem 60-s-Durchlauf (2 Schreib-
+        // Transaktionen pro Poll weckten die DB auf dem eMMC und triggerten
+        // jedes Mal einen Flow-Requery + DiffUtil-Durchlauf in der UI).
+        // Stattdessen: Alter nur ca. stündlich löschen, Limit nur bei Bedarf.
+        var loopCount = 0
 
         while (isRunning && serviceJob?.isActive == true) {
             try {
-                // Clean old entries (keep last 7 days)
-                val sevenDays = System.currentTimeMillis() - 7 * 24 * 3600_000L
-                logDao.deleteOlderThan(sevenDays)
-                // Freeze-Fix: Tabelle hart begrenzen (30 Tage Polling =
-                // ~43000 Zeilen). Ohne Limit wuchs die DB stetig und verlangsamte
-                // jeden Flow-Emit + UI-Bind spuerbar -> App-Haenger.
-                logDao.deleteBeyondLimit(MAX_LOG_ROWS)
+                loopCount++
+                if (loopCount % 60 == 1) {
+                    // ca. 1× pro Stunde: Einträge älter als 7 Tage löschen
+                    val sevenDays = System.currentTimeMillis() - 7 * 24 * 3600_000L
+                    logDao.deleteOlderThan(sevenDays)
+                }
+                if (loopCount % 10 == 1) {
+                    // ca. alle 10 Minuten: nur trimmen, wenn wirklich zu voll
+                    if (logDao.count() > MAX_LOG_ROWS) {
+                        logDao.deleteBeyondLimit(MAX_LOG_ROWS)
+                    }
+                }
 
                 // Fetch data status
                 val status = api.getRemainingData(contractId)

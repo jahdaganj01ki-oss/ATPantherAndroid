@@ -108,7 +108,7 @@ class AuthService {
             val workUuid = workMatch.groupValues[1]
             val difficulty = diffMatch.groupValues[1].toInt()
             Log.e(TAG, "PoW: work=$workUuid, diff=$difficulty")
-            val nonce = solvePow(workUuid, difficulty)
+            val nonce = withContext(Dispatchers.Default) { solvePow(workUuid, difficulty) }
             Log.e(TAG, "PoW gelöst: nonce=$nonce")
 
             // ── Step 2: Submit credentials — ALL values as strings ──
