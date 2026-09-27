@@ -42,11 +42,19 @@ public partial class MainWindow : Window
             {
                 if (WindowState == WindowState.Minimized)
                 {
-                    // Fix 27.09.2026: beim Minimieren komplett ins Tray
-                    // (kein Taskleisten-Button, nur Tray-Icon – Klick stellt wieder her).
-                    ShowInTaskbar = false;
-                    Hide();
-                    // Ensure tray icon is visible after minimizing
+                    // Fix 27.09.2026: beim Minimieren komplett ins Tray – aber NUR wenn
+                    // das Tray-Icon wirklich registriert ist. Sonst bleibt der
+                    // Taskleisten-Button (kein "unsichtbarer Prozess" mehr).
+                    if (App.IsTrayReady)
+                    {
+                        ShowInTaskbar = false;
+                        Hide();
+                        FileLogger.Info("Fenster minimiert -> Tray (Taskleiste aus).");
+                    }
+                    else
+                    {
+                        FileLogger.Warning("Minimiert, aber kein Tray-Icon – Taskleiste bleibt an.");
+                    }
                     App.UpdateTrayTooltip(TvStatus.Text);
                 }
             };
@@ -54,7 +62,7 @@ public partial class MainWindow : Window
             // Fix 27.09.2026: auch bei direktem Minimieren-Button sicher ins Tray.
             IsVisibleChanged += (_, _) =>
             {
-                if (!IsVisible && WindowState == WindowState.Minimized)
+                if (!IsVisible && WindowState == WindowState.Minimized && App.IsTrayReady)
                 {
                     ShowInTaskbar = false;
                     App.UpdateTrayTooltip(TvStatus.Text);
@@ -63,12 +71,16 @@ public partial class MainWindow : Window
 
             Closing += (_, e) =>
             {
-                if (WindowState == WindowState.Minimized)
+                // Fix 27.09.2026: X-Button geht jetzt IMMER ins Tray (vorher nur wenn
+                // nicht minimiert). Echtes Beenden nur ueber Tray-Menue "Beenden".
+                if (App.IsTrayReady)
                 {
-                    return;
+                    e.Cancel = true;
+                    WindowState = WindowState.Minimized;
+                    ShowInTaskbar = false;
+                    Hide();
+                    FileLogger.Info("X gedrueckt -> ins Tray minimiert.");
                 }
-                WindowState = WindowState.Minimized;
-                e.Cancel = true;
             };
 
             LoadSettings();

@@ -45,61 +45,81 @@ public partial class App : System.Windows.Application
 
     private void InitTray()
     {
-        if (_mainWindow == null) return;
-
-        Icon appIcon;
+        // Fix 27.09.2026: Tray-Icon UNBEDINGT erzeugen – kein early return ohne Log.
+        // Symptom: Icon erschien nicht, nur Prozess im Taskmanager sichtbar.
+        // Ursache: stiller Abbruch wenn _mainWindow noch null / Stream fehlt.
         try
         {
-            // Fix 27.09.2026: Icon aus eingebetteter Resource laden (Single-File-safe).
-            // Datei-Pfade (Assets\icon.ico / icon.ico) existieren im Artifact nicht,
-            // da nur die .exe hochgeladen wird – das liess den Start krachen.
-            var uri = new Uri("pack://application:,,,/Assets/icon.ico", UriKind.Absolute);
-            var stream = System.Windows.Application.GetResourceStream(uri)?.Stream;
-            appIcon = stream != null ? new System.Drawing.Icon(stream) : System.Drawing.SystemIcons.Application;
-        }
-        catch
-        {
-            appIcon = System.Drawing.SystemIcons.Application;
-        }
-
-        // Fix 27.09.2026: Tray-Icon sofort sichtbar machen (Visible=true reicht nicht
-        // immer beim ersten Minimieren – Icon explizit erzeugen + Tooltip setzen).
-        _trayIcon = new System.Windows.Forms.NotifyIcon
-        {
-            Icon = appIcon,
-            Visible = true,
-            Text = "AT Panther",
-        };
-
-        var openMenuItem = new System.Windows.Forms.ToolStripMenuItem("Öffnen");
-        openMenuItem.Click += (_, _) => RestoreMainWindow();
-
-        var exitMenuItem = new System.Windows.Forms.ToolStripMenuItem("Beenden");
-        exitMenuItem.Click += (_, _) =>
-        {
-            _trayIcon.Visible = false;
-            _trayIcon.Dispose();
-            _mainWindow.Dispatcher.Invoke(() =>
+            Icon appIcon;
+            try
             {
-                _mainWindow.Close();
+                // Icon aus eingebetteter Resource laden (Single-File-safe).
+                // Datei-Pfade (Assets\icon.ico / icon.ico) existieren im Artifact nicht,
+                // da nur die .exe hochgeladen wird – das liess den Start krachen.
+                var uri = new Uri("pack://application:,,,/Assets/icon.ico", UriKind.Absolute);
+                var stream = System.Windows.Application.GetResourceStream(uri)?.Stream;
+                if (stream != null)
+                {
+                    appIcon = new System.Drawing.Icon(stream);
+                    FileLogger.Info("Tray: icon aus Pack-URI geladen.");
+                }
+                else
+                {
+                    appIcon = System.Drawing.SystemIcons.Application;
+                    FileLogger.Warning("Tray: Pack-URI-Stream null – Fallback SystemIcons.Application.");
+                }
+            }
+            catch (Exception ex)
+            {
+                appIcon = System.Drawing.SystemIcons.Application;
+                FileLogger.Warning($"Tray: Icon-Laden fehlgeschlagen ({ex.Message}) – Fallback SystemIcons.Application.");
+            }
+
+            _trayIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = appIcon,
+                Text = "AT Panther",
+            };
+
+            var openMenuItem = new System.Windows.Forms.ToolStripMenuItem("Öffnen");
+            openMenuItem.Click += (_, _) => RestoreMainWindow();
+
+            var exitMenuItem = new System.Windows.Forms.ToolStripMenuItem("Beenden");
+            exitMenuItem.Click += (_, _) =>
+            {
+                try { if (_trayIcon != null) { _trayIcon.Visible = false; _trayIcon.Dispose(); } } catch { }
+                _trayIcon = null;
+                _mainWindow?.Dispatcher.Invoke(() => { try { _mainWindow.Close(); } catch { } });
                 Shutdown();
-            });
-        };
+            };
 
-        var contextMenu = new System.Windows.Forms.ContextMenuStrip();
-        contextMenu.Items.Add(openMenuItem);
-        contextMenu.Items.Add(exitMenuItem);
+            var contextMenu = new System.Windows.Forms.ContextMenuStrip();
+            contextMenu.Items.Add(openMenuItem);
+            contextMenu.Items.Add(exitMenuItem);
 
-        _trayIcon.ContextMenuStrip = contextMenu;
-        // Fix 27.09.2026: Einfacher Linksklick stellt das Fenster wieder her
-        // (vorher nur Doppelklick) – Rechtsklick oeffnet weiterhin das Menue.
-        _trayIcon.Click += (_, e) =>
+            _trayIcon.ContextMenuStrip = contextMenu;
+            // Fix 27.09.2026: Einfacher Linksklick stellt das Fenster wieder her
+            // (vorher nur Doppelklick) – Rechtsklick oeffnet weiterhin das Menue.
+            _trayIcon.Click += (_, e) =>
+            {
+                if (e is System.Windows.Forms.MouseEventArgs me && me.Button == System.Windows.Forms.MouseButtons.Left)
+                    RestoreMainWindow();
+            };
+            _trayIcon.DoubleClick += (_, _) => RestoreMainWindow();
+
+            // WICHTIG: Visible=true erst als LETZTES setzen – dann ist das Icon
+            // garantiert registriert, sobald dieser Aufruf durchlaeuft.
+            _trayIcon.Visible = true;
+            FileLogger.Info("Tray: NotifyIcon registriert (Visible=true).");
+        }
+        catch (Exception ex)
         {
-            if (e is System.Windows.Forms.MouseEventArgs me && me.Button == System.Windows.Forms.MouseButtons.Left)
-                RestoreMainWindow();
-        };
-        _trayIcon.DoubleClick += (_, _) => RestoreMainWindow();
+            FileLogger.Error(ex);
+        }
     }
+
+    /// <summary>true wenn das Tray-Icon registriert ist.</summary>
+    public static bool IsTrayReady => _trayIcon != null;
 
     private void RestoreMainWindow()
     {
