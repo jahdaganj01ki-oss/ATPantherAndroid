@@ -38,7 +38,7 @@ public static class TariffEvaluator
     {
         "surf-ticket", "surf ticket", "surfticket", "surf",
         "dayflat", "day flat", "tagesflat", "tages-flat", "tages flat",
-        "unlimited",
+        "unlimited", "unbegrenzt",
         "addon", "add-on", "zusatz", "zussatz", "option",
         "on demand", "ondemand", "on-demand",
         "data snack", "snack", "extra", "nachbuch",
