@@ -1,0 +1,23 @@
+<Window x:Class="ATPanther.WarningDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="⚠ Kein Datentarif aktiv" Height="260" Width="440"
+        Icon="pack://application:,,,/Assets/icon.ico"
+        Background="#000000" Foreground="#FFFFFF"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        ShowInTaskbar="False" Topmost="True">
+  <Border Margin="16" Background="#141414" BorderBrush="#8A8A8A" BorderThickness="1" CornerRadius="10" Padding="16">
+    <StackPanel Orientation="Vertical">
+      <TextBlock Text="⚠ Kein Datentarif aktiv" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+      <TextBlock x:Name="TxtMessage" FontSize="14" Foreground="#FFFFFF" TextWrapping="Wrap" LineHeight="20"/>
+      <TextBlock x:Name="TxtDebug" FontSize="11" Foreground="#B0B0B0" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      <Grid Margin="0,16,0,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Button x:Name="BtnDisable" Grid.Column="0" Content="Internet abschalten" Height="42"
+                Background="Transparent" Foreground="#FFFFFF" BorderBrush="#B0B0B0" BorderThickness="1" Click="OnDisableClicked"/>
+        <Button x:Name="BtnContinue" Grid.Column="2" Content="Weiterhin nutzen" Height="42"
+                Background="#FFFFFF" Foreground="#000000" BorderThickness="0" Click="OnContinueClicked"/>
+      </Grid>
+    </StackPanel>
+  </Border>
+</Window>

@@ -68,6 +68,28 @@ public sealed class AldiTalkApi(HttpClient client)
 
     public async Task<DataStatus?> GetRemainingDataAsync(string contractId, CancellationToken ct = default)
     {
+        var tariff = await GetTariffStatusAsync(contractId, ct).ConfigureAwait(false);
+        return tariff?.PrimaryDataStatus;
+    }
+
+    /// <summary>
+    /// Holt alle subscribedOffers und klassifiziert Basis-Tarif vs. Zusatzoptionen.
+    /// 1:1-Port von getTariffStatus/parseOffersToTariffStatus (AldiTalkApi.kt, Ulefone-Variante).
+    ///
+    /// Fix 26.09.2026 (Android) / 27.09.2026 (Windows): Das echte BFF-Format war
+    /// unbekannt – der erste Parser pruefte nur wenige Felder und forderte fuer einen
+    /// Basis-Tarif zwingend ein dataGrantAmount-Pack. Ein gebuchtes "Surf-Ticket
+    /// Unlimited" (Portal: "Unbegrenzt GB", evtl. ohne dataGrantAmount, mit
+    /// abweichenden Feldnamen wie marketingName) wurde weder als Basis noch als
+    /// Add-on erkannt. Neuer Ansatz:
+    ///  1. Alle String-Felder rekursiv einsammeln (DumpOfferTexts) + Keyword-Listen.
+    ///  2. JEDES aktive subscribedOffer = Tarifschutz (Fallback, kein Fehlalarm).
+    ///  3. Nur bei KEINEM aktiven Offer gilt ShouldWarn.
+    ///  4. uncertain=true wenn aktive Offers existieren, aber nichts klassifizierbar.
+    /// Wirft nie – liefert null nur bei HTTP-/Netzwerkfehler (kein Fehlalarm).
+    /// </summary>
+    public async Task<TariffStatus?> GetTariffStatusAsync(string contractId, CancellationToken ct = default)
+    {
         try
         {
             var url = $"{AppConfig.Portal}/scs/bff/scs-209-selfcare-dashboard-bff/selfcare-dashboard/v1/offers?contractId={Uri.EscapeDataString(contractId)}";
@@ -77,55 +99,235 @@ public sealed class AldiTalkApi(HttpClient client)
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                FileLogger.Warning($"GetRemainingData: {(int)resp.StatusCode} {resp.ReasonPhrase} contractId={contractId} body={Truncate(body)}");
+                FileLogger.Warning($"GetTariffStatus: {(int)resp.StatusCode} {resp.ReasonPhrase} contractId={contractId} body={Truncate(body)}");
                 return null;
             }
 
             var bodyText = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var json = JsonNode.Parse(bodyText);
-            var offers = json?["subscribedOffers"]?.AsArray();
-            if (offers == null || offers.Count == 0)
-            {
-                FileLogger.Warning($"GetRemainingData: no subscribedOffers contractId={contractId} json={Truncate(bodyText)}");
-                return null;
-            }
-
-            var offer = offers[0]!;
-            long remainingKb = 0;
-            var pack = offer?["pack"]?.AsArray() ?? new JsonArray();
-            var grantFound = false;
-            foreach (var p in pack)
-            {
-                var balanceRef = p?["balanceAttributeReference"]?.GetValue<string>();
-                var allocated = p?["allocated"];
-                var used = p?["used"];
-                FileLogger.Info($"GetRemainingData: pack entry balanceRef={balanceRef} allocated={allocated} used={used}");
-                if (balanceRef == "dataGrantAmount")
-                {
-                    grantFound = true;
-                    remainingKb = ParseLong(allocated) - ParseLong(used);
-                }
-            }
-            if (!grantFound)
-            {
-                FileLogger.Warning($"GetRemainingData: dataGrantAmount not found in pack contractId={contractId} offer={Truncate(offer?.ToJsonString())}");
-            }
-
-            var remainingMb = remainingKb / 1024.0;
-            FileLogger.Info($"GetRemainingData: remaining={remainingMb:F1} MB contractId={contractId}");
-            return new DataStatus(
-                remainingMb,
-                offer?["offerId"]?.GetValue<string>() ?? "",
-                offer?["subscriptionId"]?.GetValue<string>() ?? "",
-                offer?["resourceId"]?.GetValue<string>() ?? "",
-                offer?["onDemandAmountValueUid"]?.GetValue<string>() ?? "",
-                offer?["refillThresholdValueUid"]?.GetValue<string>() ?? "");
+            return ParseOffersToTariffStatus(json);
         }
         catch (Exception ex)
         {
             FileLogger.Error(ex);
             return null;
         }
+    }
+
+    /// <summary>Reine JSON-zu-TariffStatus Konvertierung – isoliert fuer Tests.</summary>
+    public static TariffStatus ParseOffersToTariffStatus(JsonNode? json)
+    {
+        var offers = json?["subscribedOffers"]?.AsArray()
+            ?? json?["offers"]?.AsArray()
+            ?? json?["subscribed_offer"]?.AsArray()
+            ?? new JsonArray();
+
+        if (offers.Count == 0)
+        {
+            FileLogger.Warning("TariffStatus: 0 subscribedOffers -> kein Tarif, kein Add-on");
+            return new TariffStatus(false, false, -1.0, new List<string>(), new List<string>(), 0, "0 subscribedOffers", null, false, new List<string>());
+        }
+
+        var hasBaseTariff = false;
+        var hasActiveAddon = false;
+        var baseNames = new List<string>();
+        var addonNames = new List<string>();
+        var allNames = new List<string>();
+        var anyActive = false;
+        var anyClassified = false;
+        double remainingMb = -1.0;
+        DataStatus? primaryStatus = null;
+        var primaryRemainingKb = -1L;
+
+        for (var i = 0; i < offers.Count; i++)
+        {
+            var offer = offers[i];
+            if (offer == null) continue;
+            var offerId = FirstNonBlank(
+                offer["offerId"]?.GetValue<string>() ?? "",
+                offer["id"]?.GetValue<string>() ?? "");
+            var offerName = FirstNonBlank(
+                offer["offerName"]?.GetValue<string>() ?? "",
+                offer["displayName"]?.GetValue<string>() ?? "",
+                offer["marketingName"]?.GetValue<string>() ?? "",
+                offer["productName"]?.GetValue<string>() ?? "",
+                offer["name"]?.GetValue<string>() ?? "",
+                offer["title"]?.GetValue<string>() ?? "",
+                offer["label"]?.GetValue<string>() ?? "");
+            var displayName = !string.IsNullOrEmpty(offerName) ? offerName
+                : (!string.IsNullOrEmpty(offerId) ? offerId : $"offer#{i}");
+            allNames.Add(displayName);
+
+            var status = FirstNonBlank(
+                offer["status"]?.GetValue<string>() ?? "",
+                offer["state"]?.GetValue<string>() ?? "",
+                offer["offerStatus"]?.GetValue<string>() ?? "",
+                offer["subscriptionStatus"]?.GetValue<string>() ?? "",
+                offer["lifecycleStatus"]?.GetValue<string>() ?? "");
+            var active = TariffEvaluator.IsActiveStatus(status);
+            if (active) anyActive = true;
+
+            var fullText = DumpOfferTexts(offer);
+            var isAddon = TariffEvaluator.IsAddonOffer(offerName, offerId, fullText);
+            var looksBase = TariffEvaluator.IsBaseOffer(offerName, offerId, fullText);
+
+            FileLogger.Info($"TariffStatus Offer[{i}] id={offerId} name={offerName} status={status} active={active} isAddon={isAddon} looksBase={looksBase}");
+
+            var pack = offer["pack"]?.AsArray()
+                ?? offer["packs"]?.AsArray()
+                ?? offer["balances"]?.AsArray();
+            var hasDataGrant = false;
+            var kbForThisOffer = -1L;
+            if (pack != null)
+            {
+                foreach (var p in pack)
+                {
+                    if (p == null) continue;
+                    var balanceRef = p["balanceAttributeReference"]?.GetValue<string>()
+                        ?? p["balanceType"]?.GetValue<string>()
+                        ?? p["unit"]?.GetValue<string>() ?? "";
+                    if (balanceRef == "dataGrantAmount" || balanceRef.ToLowerInvariant().Contains("data"))
+                    {
+                        if (p["allocated"] != null || p["used"] != null || p["remaining"] != null)
+                        {
+                            hasDataGrant = true;
+                            var allocated = ParseLong(p["allocated"] ?? p["total"]);
+                            var used = ParseLong(p["used"]);
+                            var remaining = p["remaining"] != null ? ParseLong(p["remaining"]) : allocated - used;
+                            kbForThisOffer = remaining;
+                            // Log Pack-Details wie bisher (Kompatibilitaet mit alten Logs)
+                            FileLogger.Info($"GetRemainingData: pack entry balanceRef={balanceRef} allocated={allocated} used={used}");
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (isAddon)
+            {
+                anyClassified = true;
+                if (active) hasActiveAddon = true;
+                addonNames.Add(active ? displayName : $"{displayName} (inaktiv)");
+                if (kbForThisOffer >= 0 && primaryRemainingKb < 0)
+                {
+                    primaryRemainingKb = kbForThisOffer;
+                    remainingMb = kbForThisOffer / 1024.0;
+                    primaryStatus = BuildDataStatus(offer, remainingMb);
+                }
+                continue;
+            }
+
+            var isBaseCandidate = hasDataGrant || looksBase
+                || fullText.ToLowerInvariant().Contains("data");
+
+            if (isBaseCandidate)
+            {
+                anyClassified = true;
+                if (active)
+                {
+                    hasBaseTariff = true;
+                    baseNames.Add(displayName);
+                }
+                else
+                {
+                    baseNames.Add($"{displayName} (inaktiv)");
+                }
+                if (kbForThisOffer >= 0 && primaryRemainingKb < 0)
+                {
+                    primaryRemainingKb = kbForThisOffer;
+                    remainingMb = kbForThisOffer / 1024.0;
+                    primaryStatus = BuildDataStatus(offer, remainingMb);
+                }
+                continue;
+            }
+
+            // Weder Add-on noch Basis erkennbar:
+            if (active)
+            {
+                // Fallback-Regel: AKTIVES subscribedOffer = Tarifschutz vorhanden.
+                // Lieber keine Warnung als einen Fehlalarm (Surf-Ticket-Fix).
+                hasBaseTariff = true;
+                baseNames.Add($"{displayName} (unklassifiziert, aktiv→Schutz)");
+                if (kbForThisOffer >= 0 && primaryRemainingKb < 0)
+                {
+                    primaryRemainingKb = kbForThisOffer;
+                    remainingMb = kbForThisOffer / 1024.0;
+                    primaryStatus = BuildDataStatus(offer, remainingMb);
+                }
+            }
+            else
+            {
+                baseNames.Add($"{displayName} (inaktiv, unklassifiziert)");
+            }
+        }
+
+        var uncertain = anyActive && !anyClassified && !hasBaseTariff && !hasActiveAddon;
+        var debug = $"offers={offers.Count} base={hasBaseTariff} addon={hasActiveAddon} " +
+            $"uncertain={uncertain} baseNames=[{string.Join("|", baseNames)}] addonNames=[{string.Join("|", addonNames)}] " +
+            $"remaining={(remainingMb >= 0 ? $"{remainingMb:F1}" : "?")}MB";
+        FileLogger.Info($"TariffStatus -> {debug}");
+
+        return new TariffStatus(hasBaseTariff, hasActiveAddon, remainingMb,
+            baseNames, addonNames, offers.Count, debug, primaryStatus, uncertain, allNames);
+    }
+
+    private static string FirstNonBlank(params string[] values) =>
+        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? "";
+
+    /// <summary>
+    /// Sammelt alle String-/Zahlen-/Boolean-Werte eines Offer-JSON rekursiv
+    /// (max. Tiefe 3) zu einem durchsuchbaren Text. Faengt Feldnamen ab, die
+    /// der Parser nicht explizit kennt (z.B. marketingName, productName).
+    /// </summary>
+    private static string DumpOfferTexts(JsonNode? node, int depth = 0)
+    {
+        if (node == null || depth > 3) return "";
+        var sb = new StringBuilder();
+        if (node is JsonObject obj)
+        {
+            foreach (var kv in obj)
+            {
+                var k = kv.Key;
+                if (k.Equals("subscriptionId", StringComparison.OrdinalIgnoreCase)
+                    || k.Equals("resourceId", StringComparison.OrdinalIgnoreCase)
+                    || k.Equals("contractId", StringComparison.OrdinalIgnoreCase)
+                    || k.ToLowerInvariant().Contains("correlation")
+                    || k.ToLowerInvariant().Contains("transaction")) continue;
+                var v = kv.Value;
+                if (v is JsonObject || v is JsonArray) sb.Append(' ').Append(DumpOfferTexts(v, depth + 1));
+                else if (v != null) sb.Append(' ').Append(k).Append(':').Append(v.ToString());
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            var n = Math.Min(arr.Count, 20);
+            for (var i = 0; i < n; i++)
+            {
+                var el = arr[i];
+                if (el is JsonObject || el is JsonArray) sb.Append(' ').Append(DumpOfferTexts(el, depth + 1));
+                else if (el != null) sb.Append(' ').Append(el.ToString());
+            }
+        }
+        else
+        {
+            sb.Append(' ').Append(node.ToString());
+        }
+        return sb.ToString();
+    }
+
+    private static DataStatus? BuildDataStatus(JsonNode offer, double remainingMb)
+    {
+        try
+        {
+            return new DataStatus(
+                remainingMb,
+                offer["offerId"]?.GetValue<string>() ?? offer["id"]?.GetValue<string>() ?? "",
+                offer["subscriptionId"]?.GetValue<string>() ?? "",
+                offer["resourceId"]?.GetValue<string>() ?? "",
+                offer["onDemandAmountValueUid"]?.GetValue<string>() ?? "",
+                offer["refillThresholdValueUid"]?.GetValue<string>() ?? "");
+        }
+        catch { return null; }
     }
 
     private static long ParseLong(JsonNode? node)

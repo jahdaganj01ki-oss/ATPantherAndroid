@@ -50,4 +50,77 @@ public sealed class CoreTests
         Assert.Equal(850f, AppConfig.DefaultThresholdMb);
         Assert.Equal(60, AppConfig.DefaultIntervalSec);
     }
+
+    [Fact]
+    public void SurfTicketUnlimited_MarketingName_RecognizedAsAddon()
+    {
+        // Portal zeigt "Unbegrenzt GB" (kein dataGrantAmount) – Feldname marketingName.
+        var json = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"subscribedOffers": [{
+                "offerId": "ST-UNLTD",
+                "marketingName": "Surf-Ticket Unlimited",
+                "status": "active",
+                "pack": [{"balanceAttributeReference": "unlimitedGB", "allocated": 0, "used": 0}]
+            }]}
+            """);
+        var tariff = AldiTalkApi.ParseOffersToTariffStatus(json);
+        Assert.True(tariff.HasActiveAddon);
+        Assert.False(tariff.ShouldWarn);
+    }
+
+    [Fact]
+    public void UnbegrenztGb_PortalText_RecognizedAsAddon()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"subscribedOffers": [{
+                "offerId": "X1",
+                "displayName": "Unbegrenzt GB",
+                "status": "aktiv",
+                "pack": []
+            }]}
+            """);
+        var tariff = AldiTalkApi.ParseOffersToTariffStatus(json);
+        Assert.True(tariff.HasActiveAddon);
+        Assert.False(tariff.ShouldWarn);
+    }
+
+    [Fact]
+    public void ActiveButUnclassifiableOffer_FallsBackToProtection_NoWarning()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"subscribedOffers": [{
+                "offerId": "???",
+                "someUnknownField": "quux-123",
+                "status": "active"
+            }]}
+            """);
+        var tariff = AldiTalkApi.ParseOffersToTariffStatus(json);
+        Assert.True(tariff.HasBaseTariff);
+        Assert.False(tariff.ShouldWarn);
+    }
+
+    [Fact]
+    public void EmptyOffers_ShouldWarn()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse("""{"subscribedOffers": []}""");
+        var tariff = AldiTalkApi.ParseOffersToTariffStatus(json);
+        Assert.True(tariff.ShouldWarn);
+    }
+
+    [Fact]
+    public void ExpiredOffer_DoesNotProtect()
+    {
+        var json = System.Text.Json.Nodes.JsonNode.Parse("""
+            {"subscribedOffers": [{
+                "offerId": "OLD",
+                "offerName": "Kombi-Paket S",
+                "status": "expired",
+                "pack": []
+            }]}
+            """);
+        var tariff = AldiTalkApi.ParseOffersToTariffStatus(json);
+        // Inaktiv: weder Basis noch Schutz – aber auch kein aktives Offer => Warnung
+        Assert.False(tariff.HasBaseTariff);
+        Assert.True(tariff.ShouldWarn);
+    }
 }

@@ -62,6 +62,8 @@ public partial class App : System.Windows.Application
             appIcon = System.Drawing.SystemIcons.Application;
         }
 
+        // Fix 27.09.2026: Tray-Icon sofort sichtbar machen (Visible=true reicht nicht
+        // immer beim ersten Minimieren – Icon explizit erzeugen + Tooltip setzen).
         _trayIcon = new System.Windows.Forms.NotifyIcon
         {
             Icon = appIcon,
@@ -89,6 +91,13 @@ public partial class App : System.Windows.Application
         contextMenu.Items.Add(exitMenuItem);
 
         _trayIcon.ContextMenuStrip = contextMenu;
+        // Fix 27.09.2026: Einfacher Linksklick stellt das Fenster wieder her
+        // (vorher nur Doppelklick) – Rechtsklick oeffnet weiterhin das Menue.
+        _trayIcon.Click += (_, e) =>
+        {
+            if (e is System.Windows.Forms.MouseEventArgs me && me.Button == System.Windows.Forms.MouseButtons.Left)
+                RestoreMainWindow();
+        };
         _trayIcon.DoubleClick += (_, _) => RestoreMainWindow();
     }
 

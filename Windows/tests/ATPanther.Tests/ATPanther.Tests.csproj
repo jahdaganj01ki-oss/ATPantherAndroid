@@ -19,6 +19,9 @@
     <Compile Include="..\..\src\ATPanther\Core\Crypto.cs" Link="Core\Crypto.cs" />
     <Compile Include="..\..\src\ATPanther\Core\AuthService.cs" Link="Core\AuthService.cs" />
     <Compile Include="..\..\src\ATPanther\Core\FileLogger.cs" Link="Core\FileLogger.cs" />
+    <Compile Include="..\..\src\ATPanther\Core\AldiTalkApi.cs" Link="Core\AldiTalkApi.cs" />
+    <Compile Include="..\..\src\ATPanther\Core\TariffStatus.cs" Link="Core\TariffStatus.cs" />
+    <Compile Include="..\..\src\ATPanther\Core\WarningPrefs.cs" Link="Core\WarningPrefs.cs" />
   </ItemGroup>
 
 </Project>

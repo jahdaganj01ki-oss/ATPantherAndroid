@@ -10,6 +10,7 @@ public partial class MainWindow : Window
 {
     private readonly CredentialStore _creds = new();
     private readonly MonitorStateStore _state = new();
+    private readonly WarningPrefs _warnings = new();
     private readonly AppDb _db = new();
     private readonly MonitorService _monitor;
     private bool _pwVisible;
@@ -29,6 +30,7 @@ public partial class MainWindow : Window
                 App.UpdateTrayTooltip(t);
             });
             _monitor.LogAdded += _ => Dispatcher.Invoke(RefreshLog);
+            _monitor.NoTariffWarning += tariff => Dispatcher.Invoke(() => ShowNoTariffWarning(tariff));
             _monitor.Paused += () => Dispatcher.Invoke(() =>
             {
                 MessageBox.Show("⛔ AT Panther pausiert nach wiederholten Fehlern. Zum Fortsetzen zweimal auf Start tippen.",
@@ -40,9 +42,21 @@ public partial class MainWindow : Window
             {
                 if (WindowState == WindowState.Minimized)
                 {
+                    // Fix 27.09.2026: beim Minimieren komplett ins Tray
+                    // (kein Taskleisten-Button, nur Tray-Icon – Klick stellt wieder her).
                     ShowInTaskbar = false;
                     Hide();
                     // Ensure tray icon is visible after minimizing
+                    App.UpdateTrayTooltip(TvStatus.Text);
+                }
+            };
+
+            // Fix 27.09.2026: auch bei direktem Minimieren-Button sicher ins Tray.
+            IsVisibleChanged += (_, _) =>
+            {
+                if (!IsVisible && WindowState == WindowState.Minimized)
+                {
+                    ShowInTaskbar = false;
                     App.UpdateTrayTooltip(TvStatus.Text);
                 }
             };
@@ -178,6 +192,49 @@ public partial class MainWindow : Window
     }
 
     private void OnBackClicked(object sender, RoutedEventArgs e) => Tabs.SelectedIndex = 0;
+
+    /// <summary>
+    /// Guthaben-Warnung: Tray-Balloon + modaler Dialog mit zwei Aktionen.
+    /// Port von NoTariffWarningManager.maybeWarn (Android) – der WLAN-Guard entfaellt
+    /// auf Windows (kein mobiles Datenrisiko am Desktop), Cooldown/Snooze bleibt.
+    /// </summary>
+    private void ShowNoTariffWarning(TariffStatus tariff)
+    {
+        try
+        {
+            FileLogger.Warning($"Warnung: kein Datentarif ({tariff.DebugInfo})");
+            App.ShowTrayNotification("⚠ Kein Datentarif aktiv", "Datenverbrauch kostet jetzt direkt Guthaben!");
+            // Fenster ggf. aus dem Tray holen, damit der Dialog sichtbar ist
+            if (!IsVisible || WindowState == WindowState.Minimized)
+            {
+                Show();
+                WindowState = WindowState.Normal;
+                ShowInTaskbar = true;
+                Activate();
+            }
+            var dlg = new WarningDialog(tariff.DebugInfo) { Owner = this };
+            if (dlg.ShowDialog() != true) return;
+            if (dlg.Choice == WarningDialog.WarningChoice.Continue)
+            {
+                _warnings.RecordContinue();
+                FileLogger.Info("Warnung bestaetigt: Weiterhin nutzen (Snooze 12h)");
+                _db.Insert("WARN", tariff.RemainingMb >= 0 ? (float)tariff.RemainingMb : -1f,
+                    "Warnung bestaetigt: Weiterhin nutzen (Snooze 12h)");
+            }
+            else
+            {
+                _warnings.RecordDisableChosen();
+                FileLogger.Info("Warnung: Nutzer waehlte 'Internet abschalten' (Snooze 24h)");
+                _db.Insert("WARN", tariff.RemainingMb >= 0 ? (float)tariff.RemainingMb : -1f,
+                    "Warnung: Nutzer waehlte 'Internet abschalten' (Snooze 24h)");
+            }
+            RefreshLog();
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+        }
+    }
 
     private void OnOpenLogClicked(object sender, RoutedEventArgs e)
     {

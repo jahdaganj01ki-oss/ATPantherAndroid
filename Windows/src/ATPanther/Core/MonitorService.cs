@@ -6,9 +6,12 @@ public sealed class MonitorService
     public event Action<string, float>? StatusChanged;
     public event Action<string>? LogAdded;
     public event Action? Paused;
+    /// <summary>Wird ausgeloest wenn kein Basis-Tarif und kein Add-on aktiv ist (Guthaben-Risiko).</summary>
+    public event Action<TariffStatus>? NoTariffWarning;
 
     private readonly AppDb _db;
     private readonly MonitorStateStore _state;
+    private readonly WarningPrefs _warnings = new();
     private CancellationTokenSource? _cts;
 
     public bool IsRunning => _cts != null;
@@ -88,11 +91,13 @@ public sealed class MonitorService
                     lastLimitTrim = DateTime.UtcNow;
                 }
 
-                DataStatus? status = null;
-                try { status = await api.GetRemainingDataAsync(contractId, ct).ConfigureAwait(false); }
-                catch { status = null; }
+                // ── Unified fetch: Tarif-Status + Datenvolumen in EINEM Call ──
+                TariffStatus? tariff = null;
+                try { tariff = await api.GetTariffStatusAsync(contractId, ct).ConfigureAwait(false); }
+                catch { tariff = null; }
+                DataStatus? status = tariff?.PrimaryDataStatus;
 
-                if (status == null)
+                if (tariff == null)
                 {
                     failures++; relogins++;
                     _state.Save(new MonitorState(failures, false));
@@ -124,6 +129,56 @@ public sealed class MonitorService
                     continue;
                 }
 
+                // ── Guthaben-Warnsystem auswerten (No-Spam via WarningPrefs) ──
+                // Diagnostik mit allen Offer-Namen ins Log, damit Fehlklassifikationen
+                // (z.B. Surf-Ticket Unlimited mit unerwarteten Feldnamen) sichtbar werden.
+                try
+                {
+                    var diagMsg = $"Tarif-Check: {tariff.DebugInfo} | Offers: {string.Join("; ", tariff.AllOfferNames ?? new List<string>())}";
+                    if (diagMsg.Length > 300) diagMsg = diagMsg.Substring(0, 300);
+                    FileLogger.Info($"Monitor: {diagMsg}");
+                    Log("CHECK", (float)tariff.RemainingMb,
+                        diagMsg.Length > 500 ? diagMsg.Substring(0, 500) : diagMsg);
+                    if (tariff.ShouldWarn)
+                    {
+                        FileLogger.Warning($"Monitor: Tarif-Warnung: {tariff.DebugInfo}");
+                        if (_warnings.CanShowWarning(tariff))
+                        {
+                            _warnings.RecordWarningShown(tariff);
+                            var warnMsg = $"⚠ Warnung: {NoTariffWarningText.Value.Substring(0, Math.Min(120, NoTariffWarningText.Value.Length))}";
+                            Log("WARN", tariff.RemainingMb >= 0 ? (float)tariff.RemainingMb : -1f, warnMsg);
+                            NoTariffWarning?.Invoke(tariff);
+                        }
+                        else
+                        {
+                            FileLogger.Info($"Monitor: Warnung gedrosselt ({_warnings.GetStateForDebug()})");
+                        }
+                    }
+                    else
+                    {
+                        _warnings.ClearIfTariffActive();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Warning($"Monitor: Tariff-Check Auswertung fehlgeschlagen (ignoriert) error={ex.Message}");
+                }
+
+                if (status == null)
+                {
+                    var noDataMsg = tariff.RawOfferCount == 0
+                        ? "Kein Tarif gebucht — keine Buchung möglich (Guthaben-Risiko)"
+                        : (tariff.Uncertain || !tariff.ShouldWarn)
+                            ? $"Tarif aktiv (unklassifiziert: {string.Join("; ", tariff.AllOfferNames ?? new List<string>())}) — keine Auto-Buchung möglich, aber Guthaben geschützt"
+                            : "Kein Daten-Pack im aktiven Offer — Warnung aktiv, keine Auto-Buchung";
+                    var noDataMsgShort = noDataMsg.Length > 150 ? noDataMsg.Substring(0, 150) : noDataMsg;
+                    FileLogger.Warning($"Monitor: {noDataMsgShort}");
+                    Log("CHECK", (float)tariff.RemainingMb, noDataMsg);
+                    Status(noDataMsgShort, (float)tariff.RemainingMb);
+                    await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false);
+                    continue;
+                }
+
                 failures = 0; relogins = 0;
                 _state.Save(new MonitorState(0, false));
                 Status($"📡 Datenstand: {status.RemainingMb:F1} MB", (float)status.RemainingMb);
@@ -139,7 +194,8 @@ public sealed class MonitorService
                         if (status.RemainingMb < AppConfig.ZeroVolumeEpsilonMb)
                         {
                             await Task.Delay(AppConfig.SecondBookingDelayMs, ct).ConfigureAwait(false);
-                            var fresh = await api.GetRemainingDataAsync(contractId, ct).ConfigureAwait(false);
+                            var freshTariff = await api.GetTariffStatusAsync(contractId, ct).ConfigureAwait(false);
+                            var fresh = freshTariff?.PrimaryDataStatus;
                             if (fresh != null)
                             {
                                 var second = await api.Book1GbAsync(fresh, ct).ConfigureAwait(false);
@@ -168,5 +224,15 @@ public sealed class MonitorService
                 try { await Task.Delay(TimeSpan.FromSeconds(intervalSec), ct).ConfigureAwait(false); } catch { break; }
             }
         }
+    }
+
+    /// <summary>
+    /// Warn-Text wie in der Android-Variante (NoTariffWarningManager.WARNING_TEXT).
+    /// Lazy, damit Tests ohne WPF-Dependencies laufen.
+    /// </summary>
+    internal static class NoTariffWarningText
+    {
+        internal const string Value = "Aktuell ist kein Datentarif gebucht. Verbrauch von Datenvolumen kostet jetzt direkt Guthaben. " +
+            "Möchten Sie weiterhin Internet nutzen oder das Internet abschalten?";
     }
 }
