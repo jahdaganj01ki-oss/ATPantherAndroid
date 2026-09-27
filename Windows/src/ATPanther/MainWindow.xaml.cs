@@ -271,8 +271,11 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _monitor.Stop();
-        _db.Dispose();
+        // Fix 27.09.2026: _monitor/_db koennen null sein, wenn der Konstruktor
+        // vor der Zuweisung geworfen hat (z.B. XAML-Parse-Fehler) – dann gab es
+        // eine NullReferenceException beim Schliessen obendrauf.
+        try { _monitor?.Stop(); } catch { }
+        try { _db?.Dispose(); } catch { }
         base.OnClosed(e);
     }
 }

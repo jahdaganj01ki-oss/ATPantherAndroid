@@ -15,12 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest">
-      <Link>icon.ico</Link>
-    </Content>
-    <Content Include="Assets\icon.ico" CopyToOutputDirectory="PreserveNewest">
-      <Link>Assets\icon.ico</Link>
-    </Content>
+    <!-- Icon als Resource einbetten (Single-File-safe): Das Artifact enthaelt nur
+         die .exe, daneben liegende Content-Dateien fehlen zur Laufzeit und das
+         XAML-Icon ("Assets/icon.ico") liess den Start mit XamlParseException
+         krachen (Fix 27.09.2026). -->
+    <Resource Include="Assets\icon.ico" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <Using Remove="System.Windows.Forms" />

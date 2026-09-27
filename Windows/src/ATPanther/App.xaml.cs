@@ -50,21 +50,12 @@ public partial class App : System.Windows.Application
         Icon appIcon;
         try
         {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
-            if (!File.Exists(iconPath))
-            {
-                // Fallback to root-level icon for single-file / portable builds
-                iconPath = Path.Combine(AppContext.BaseDirectory, "icon.ico");
-            }
-            if (File.Exists(iconPath))
-            {
-                appIcon = new System.Drawing.Icon(iconPath);
-            }
-            else
-            {
-                // Last resort: embedded resource or system icon
-                appIcon = System.Drawing.SystemIcons.Application;
-            }
+            // Fix 27.09.2026: Icon aus eingebetteter Resource laden (Single-File-safe).
+            // Datei-Pfade (Assets\icon.ico / icon.ico) existieren im Artifact nicht,
+            // da nur die .exe hochgeladen wird – das liess den Start krachen.
+            var uri = new Uri("pack://application:,,,/Assets/icon.ico", UriKind.Absolute);
+            var stream = System.Windows.Application.GetResourceStream(uri)?.Stream;
+            appIcon = stream != null ? new System.Drawing.Icon(stream) : System.Drawing.SystemIcons.Application;
         }
         catch
         {
