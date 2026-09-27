@@ -123,30 +123,60 @@ public partial class App : System.Windows.Application
 
     private void RestoreMainWindow()
     {
-        if (_mainWindow == null) return;
-        // Ensure tray icon stays visible
-        if (_trayIcon != null)
+        // Fix 27.09.2026: _mainWindow war evtl. nie gesetzt (OnStartup-Reihenfolge) –
+        // dann tat Links-/Rechtsklick aufs Tray-Icon nichts. Jetzt Fallback ueber
+        // Application.Current.MainWindow / Windows-Liste + Logging.
+        try
         {
-            _trayIcon.Visible = true;
-        }
-        _mainWindow.Dispatcher.Invoke(() =>
-        {
-            if (_mainWindow.WindowState == WindowState.Minimized)
+            var win = _mainWindow ?? Current?.MainWindow as MainWindow;
+            if (win == null)
             {
-                _mainWindow.WindowState = WindowState.Normal;
+                foreach (var w in Current?.Windows ?? new System.Windows.WindowCollection())
+                {
+                    if (w is MainWindow mw) { win = mw; break; }
+                }
             }
-            _mainWindow.ShowInTaskbar = true;
-            _mainWindow.Show();
-            _mainWindow.Activate();
-            _mainWindow.Topmost = true;
-            _mainWindow.Topmost = false;
-        });
+            if (win == null)
+            {
+                FileLogger.Warning("Tray: Restore ignoriert – kein MainWindow gefunden.");
+                return;
+            }
+            _mainWindow = win;
+            FileLogger.Info("Tray: RestoreMainWindow – Fenster wird wiederhergestellt.");
+            win.Dispatcher.Invoke(() =>
+            {
+                if (win.WindowState == WindowState.Minimized)
+                {
+                    win.WindowState = WindowState.Normal;
+                }
+                win.ShowInTaskbar = true;
+                win.Show();
+                win.Activate();
+                win.Topmost = true;
+                win.Topmost = false;
+            });
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+        }
     }
 
     public static void UpdateTrayTooltip(string status)
     {
         if (_trayIcon == null) return;
-        _trayIcon.Text = string.IsNullOrWhiteSpace(status) ? "AT Panther" : $"AT Panther\n{status}";
+        try
+        {
+            // Fix 27.09.2026: NotifyIcon.Text wirft bei >63 Zeichen (Win32-Limit).
+            // Der Monitor-Status ("... (123.4 MB)") ist laenger – kuerzen.
+            var text = string.IsNullOrWhiteSpace(status) ? "AT Panther" : $"AT Panther: {status}";
+            if (text.Length > 60) text = text.Substring(0, 60);
+            _trayIcon.Text = text;
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Warning($"Tray: Tooltip setzen fehlgeschlagen ({ex.Message})");
+        }
     }
 
     public static void ShowTrayNotification(string title, string text)
