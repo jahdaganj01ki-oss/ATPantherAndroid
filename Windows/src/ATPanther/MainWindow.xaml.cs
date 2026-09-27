@@ -21,6 +21,7 @@ public partial class MainWindow : Window
         try
         {
             InitializeComponent();
+            DarkTitleBar.Enable(this);
             FileLogger.Info("MainWindow initialized.");
 
             _monitor = new MonitorService(_db, _state);

@@ -16,6 +16,7 @@ public partial class WarningDialog : Window
     public WarningDialog(string debugInfo)
     {
         InitializeComponent();
+        DarkTitleBar.Enable(this);
         TxtMessage.Text = "Aktuell ist kein Datentarif gebucht. Verbrauch von Datenvolumen kostet jetzt direkt Guthaben. " +
             "Möchten Sie weiterhin Internet nutzen oder das Internet abschalten?";
         TxtDebug.Text = string.IsNullOrWhiteSpace(debugInfo) ? "" : debugInfo.Substring(0, Math.Min(220, debugInfo.Length));
