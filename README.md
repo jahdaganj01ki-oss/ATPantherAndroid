@@ -66,6 +66,9 @@ temporären Kontosperre. Deshalb gibt es eine zentrale Freigabe:
   30 Minuten). Das Verhalten ist im Dialog umschaltbar.
 
 Einrichtung und API: [`worker/README.md`](worker/README.md).
+Falls beim Cloudflare-Token etwas klemmt:
+[`CLOUDFLARE-TOKEN-ANLEITUNG.md`](CLOUDFLARE-TOKEN-ANLEITUNG.md) – dort steht
+Schritt für Schritt, welche Berechtigungen der Token braucht.
 
 Nach der Einrichtung wird die Worker-URL in jeder App unter
 *Monitor-Freigabe* eingetragen; Standard-Owner ist die **Windows**-Variante.

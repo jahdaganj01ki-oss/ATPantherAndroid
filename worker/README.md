@@ -132,6 +132,9 @@ Custom Token** mit genau den drei Zeilen oben. Unter **Account Resources**
 muss das gewünschte Konto ausgewählt sein – ein Token ohne Kontobezug sieht
 keine Konten.
 
+Ausführliche Anleitung mit Screenshots-Beschreibungen und Troubleshooting:
+[`../CLOUDFLARE-TOKEN-ANLEITUNG.md`](../CLOUDFLARE-TOKEN-ANLEITUNG.md).
+
 ## Optional: Zugriffsschutz
 
 Standardmäßig ist die Freigabe-URL offen lesbar. Das ist unkritisch – dort
