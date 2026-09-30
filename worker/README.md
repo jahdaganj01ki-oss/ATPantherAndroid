@@ -41,6 +41,23 @@ Bedarf dieser Lösung: ~290 Requests/Tag/Gerät, also rund 870/Tag insgesamt.
 
 Voraussetzung: kostenloses Cloudflare-Konto.
 
+### Variante A: ein Skript, ein Durchgang (empfohlen)
+
+```powershell
+cd worker
+pwsh -File .\deploy.ps1 -Token "<API-TOKEN>" -AccountId "<ACCOUNT-ID>"
+```
+
+Das Skript legt die D1-Datenbank an, spielt `schema.sql` ein, lädt den
+Worker hoch, aktiviert `workers.dev` und prüft zum Schluss selbst, dass
+zwei Geräte nie gleichzeitig Inhaber werden. Am Ende steht die URL, die in
+den Apps einzutragen ist.
+
+Falls es mit „Der Token sieht KEIN Konto" abbricht, fehlen dem Token die
+Account-Permissions (siehe unten).
+
+### Variante B: Wrangler
+
 ```bash
 cd worker
 npm install                      # installiert nur wrangler (CLI)
@@ -90,6 +107,30 @@ curl -X PUT "https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/workers/
 
 Der API-Token braucht dafür: **Account → D1: Edit** und
 **Account → Workers Scripts: Edit**.
+
+## Nötige Token-Permissions
+
+Der häufigste Stolperstein: ein Token ist **aktiv** (`/user/tokens/verify`
+meldet `active`), sieht aber trotzdem kein Konto. Vorab prüfen:
+
+```bash
+curl -H "Authorization: Bearer <TOKEN>" https://api.cloudflare.com/client/v4/accounts
+```
+
+Kommt `[]` zurück, fehlen die Account-Permissions oder der Token ist auf ein
+anderes Konto eingeschränkt. Nötig sind:
+
+| Permission | Zweck |
+|---|---|
+| `Account \| D1 \| Edit` | Datenbank anlegen + Schema ausführen |
+| `Account \| Workers Scripts \| Edit` | Worker hochladen |
+| `Account \| Account Settings \| Read` | `workers.dev`-Subdomain |
+
+Im Dashboard: *Mein Profil → API-Tokens → Create Token*. Entweder die Vorlage
+**Edit Cloudflare Workers** nehmen und **D1: Edit** ergänzen, oder **Create
+Custom Token** mit genau den drei Zeilen oben. Unter **Account Resources**
+muss das gewünschte Konto ausgewählt sein – ein Token ohne Kontobezug sieht
+keine Konten.
 
 ## Optional: Zugriffsschutz
 
