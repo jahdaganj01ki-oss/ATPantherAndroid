@@ -51,6 +51,86 @@ public sealed class CoreTests
         Assert.Equal(60, AppConfig.DefaultIntervalSec);
     }
 
+    // ── Monitor-Freigabe: identische Werte wie MonitorGate.kt ──────────────
+
+    [Fact]
+    public void LockCaps_MatchAndroidGate()
+    {
+        Assert.Equal("windows", AppConfig.VariantId);
+        Assert.Equal(900, AppConfig.LockTtlSeconds);
+        Assert.Equal(5 * 60 * 1000, AppConfig.LockCheckIntervalMs);
+        Assert.Equal(30 * 60 * 1000, AppConfig.LockCacheGraceMs);
+    }
+
+    [Fact]
+    public void Lock_OwnDeviceWithLiveLease_IsAllowed()
+    {
+        const string me = "windows-pc1";
+        var state = new LockState("windows", me, 1000, 999_000, 1000, 500_000);
+        var r = LockRules.Decide(state, me, "windows", 500_000);
+        Assert.True(r.Allowed);
+        Assert.Equal(GateStatus.Allowed, r.Status);
+    }
+
+    [Fact]
+    public void Lock_OtherDevice_IsNotOwner()
+    {
+        var state = new LockState("ulefone", "ulefone-abc", 1000, 999_000, 1000, 500_000);
+        var r = LockRules.Decide(state, "windows-pc1", "windows", 500_000);
+        Assert.False(r.Allowed);
+        Assert.Equal(GateStatus.NotOwner, r.Status);
+        Assert.Equal("ulefone", r.Owner);
+    }
+
+    [Fact]
+    public void Lock_Empty_IsFree()
+    {
+        var r = LockRules.Decide(LockState.Empty, "windows-pc1", "windows", 500_000);
+        Assert.False(r.Allowed);
+        Assert.Equal(GateStatus.Free, r.Status);
+    }
+
+    [Fact]
+    public void Lock_ExpiredLease_IsFreeEvenForSameVariant()
+    {
+        // Abgelaufene eigene Lease darf NICHT als erlaubt durchgehen: sonst
+        // wuerde ein Geraet weiter pollen, obwohl ein anderes uebernommen
+        // haben koennte.
+        var state = new LockState("windows", "windows-pc1", 1000, 400_000, 1000, 500_000);
+        var r = LockRules.Decide(state, "windows-pc1", "windows", 500_000);
+        Assert.False(r.Allowed);
+        Assert.Equal(GateStatus.Free, r.Status);
+    }
+
+    [Fact]
+    public void Lock_SameVariantDifferentDevice_IsNotOwner()
+    {
+        // Zweites Geraet derselben Variante ist ein fremdes Geraet.
+        var state = new LockState("windows", "windows-pc1", 1000, 999_000, 1000, 500_000);
+        var r = LockRules.Decide(state, "windows-pc2", "windows", 500_000);
+        Assert.False(r.Allowed);
+        Assert.Equal(GateStatus.NotOwner, r.Status);
+    }
+
+    [Fact]
+    public void Lock_ExpiryBoundary_IsExclusive()
+    {
+        // expiresAt == now gilt als abgelaufen (Worker rechnet genauso).
+        var state = new LockState("windows", "windows-pc1", 1000, 500_000, 1000, 500_000);
+        var r = LockRules.Decide(state, "windows-pc1", "windows", 500_000);
+        Assert.False(r.Allowed);
+    }
+
+    [Fact]
+    public void LockStore_NormalizeUrl_TrimsAndValidates()
+    {
+        Assert.Equal("https://a.workers.dev", LockStore.NormalizeUrl("  https://a.workers.dev/  "));
+        Assert.Equal("http://127.0.0.1:8787", LockStore.NormalizeUrl("http://127.0.0.1:8787"));
+        Assert.Equal("", LockStore.NormalizeUrl("workers.dev"));
+        Assert.Equal("", LockStore.NormalizeUrl(""));
+        Assert.Equal("", LockStore.NormalizeUrl(null));
+    }
+
     [Fact]
     public void SurfTicketUnlimited_MarketingName_RecognizedAsAddon()
     {

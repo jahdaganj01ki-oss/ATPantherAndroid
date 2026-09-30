@@ -36,8 +36,39 @@ README des jeweiligen Ordners.
   erfolgreiche Datenafrage) pausiert der Monitor automatisch mit
   Alarm-Benachrichtigung – kein weiterer automatischer Versuch bis zum
   manuellen Neustart (2× „Start" in der App)
+- 🔒 **Monitor-Freigabe** (alle Varianten): nur **ein** Gerät darf zur Zeit
+  das Portal abfragen. Die Freigabe liegt in einer Cloudflare-Worker-Lease
+  (kostenlos) – alle anderen Varianten gehen automatisch in den
+  Bereitschaftsmodus und berühren das Portal gar nicht. Details unten.
 - 🔄 AlarmManager-Fallback + START_STICKY, damit der Monitor das System-Kill
   überlebt
+
+## Monitor-Freigabe: nur eine Variante überwacht
+
+Wird dieselbe App auf mehreren Geräten mit **demselben Login** betrieben
+(Windows + Ulefone + Moto), fragen alle Varianten eigenständig alle 60 s das
+Portal ab. Das vervielfacht die Abfragen und damit das Risiko einer
+temporären Kontosperre. Deshalb gibt es eine zentrale Freigabe:
+
+- Genau **eine** Variante besitzt die „Freigabe" (eine 15-Minuten-Lease im
+  Cloudflare Worker + D1) und darf das Portal abfragen.
+- Alle anderen starten nicht: kein Login, keine Datenabfrage, keine Buchung.
+  Sie zeigen „⏸ Bereitschaft: <Variante> fragt ab" und beenden sich selbst.
+- **Umschalten**: auf dem gewünschten Gerät *Monitor-Freigabe → Übernehmen*.
+  Das alte Gerät erkennt den Verlust beim nächsten Check (≤ 5 min) und hört
+  von selbst auf zu pollen. Eine Freigabe läuft außerdem automatisch ab,
+  wenn das Gerät ausfällt – die nächste Variante nimmt sie dann allein.
+- **Kostenlos**: Cloudflare Workers (100.000 Requests/Tag) und D1 sind
+  kostenlos; die Lösung braucht rund 870 Requests/Tag. Es werden **keine**
+  Zugangsdaten gespeichert, nur ein Variantenname.
+- **Ausfallverhalten**: standardmäßig *fail-closed* – ist der Freigabe-Server
+  nicht erreichbar, wird **nicht** abgefragt (der letzte bekannte Stand gilt
+  30 Minuten). Das Verhalten ist im Dialog umschaltbar.
+
+Einrichtung und API: [`worker/README.md`](worker/README.md).
+
+Nach der Einrichtung wird die Worker-URL in jeder App unter
+*Monitor-Freigabe* eingetragen; Standard-Owner ist die **Windows**-Variante.
 
 ## Speicherung der Zugangsdaten
 

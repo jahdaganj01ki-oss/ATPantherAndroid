@@ -18,4 +18,12 @@ public static class AppConfig
     public const double ZeroVolumeEpsilonMb = 0.05;
     public const int SecondBookingDelayMs = 3000;
     public const int LogRetentionDays = 7;
+
+    // ── Monitor-Freigabe (Cloudflare Worker + D1) ─────────────────────────
+    // Laufzeit-Werte muessen mit MonitorGate.kt in den Android-Varianten
+    // uebereinstimmen (Test: Caps_Constants_MatchAndroid).
+    public const string VariantId = "windows";
+    public const int LockTtlSeconds = 900;      // Lease-Laenge (15 min)
+    public const long LockCheckIntervalMs = 5 * 60 * 1000;   // hoechstens 1 Abruf / 5 min
+    public const long LockCacheGraceMs = 30 * 60 * 1000;     // letzter Stand bei Ausfall
 }

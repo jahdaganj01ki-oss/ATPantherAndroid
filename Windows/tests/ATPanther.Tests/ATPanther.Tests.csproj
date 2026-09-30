@@ -22,6 +22,9 @@
     <Compile Include="..\..\src\ATPanther\Core\AldiTalkApi.cs" Link="Core\AldiTalkApi.cs" />
     <Compile Include="..\..\src\ATPanther\Core\TariffStatus.cs" Link="Core\TariffStatus.cs" />
     <Compile Include="..\..\src\ATPanther\Core\WarningPrefs.cs" Link="Core\WarningPrefs.cs" />
+    <!-- Monitor-Freigabe: LockRules ist reine Logik und ohne WPF testbar -->
+    <Compile Include="..\..\src\ATPanther\Core\LockStore.cs" Link="Core\LockStore.cs" />
+    <Compile Include="..\..\src\ATPanther\Core\MonitorGate.cs" Link="Core\MonitorGate.cs" />
   </ItemGroup>
 
 </Project>

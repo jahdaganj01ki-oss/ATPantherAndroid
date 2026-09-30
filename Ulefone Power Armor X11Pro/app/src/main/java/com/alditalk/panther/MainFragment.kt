@@ -42,6 +42,7 @@ class MainFragment : Fragment() {
     private lateinit var btnToggle: MaterialButton
     private lateinit var btnSave: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
+    private lateinit var btnLock: MaterialButton
     private lateinit var btnTogglePassword: MaterialButton
     private var passwordVisible = false
 
@@ -64,6 +65,7 @@ class MainFragment : Fragment() {
         btnToggle = view.findViewById(R.id.btnToggleMonitor)
         btnSave = view.findViewById(R.id.btnSaveCredentials)
         btnBatteryOpt = view.findViewById(R.id.btnBatteryOpt)
+        btnLock = view.findViewById(R.id.btnLock)
         btnTogglePassword = view.findViewById(R.id.btnTogglePassword)
 
         // X11Pro v1.5: Passwort anzeigen/verbergen (Auge-Button).
@@ -112,6 +114,8 @@ class MainFragment : Fragment() {
         btnToggle.setOnClickListener { activity.onToggleClicked() }
         btnSave.setOnClickListener { activity.onSaveClicked() }
         btnBatteryOpt.setOnClickListener { activity.onBatteryOptClicked() }
+        // Monitor-Freigabe: sorgt dafuer, dass nur eine Variante abfragt
+        btnLock.setOnClickListener { activity.onLockClicked() }
     }
 
     fun currentPhone(): String =

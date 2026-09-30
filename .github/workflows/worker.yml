@@ -1,0 +1,40 @@
+name: Lock-Worker (Monitor-Freigabe)
+
+# Testet die Freigabe-Logik des Cloudflare Workers lokal gegen SQLite.
+# Laeuft ohne Cloudflare-Konto und ohne Deploy - D1 ist SQLite, die bedingten
+# UPSERTs verhalten sich identisch.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "worker/**"
+      - ".github/workflows/worker.yml"
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - "worker/**"
+      - ".github/workflows/worker.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Schema anwenden
+        run: sqlite3 :memory: < schema.sql
+
+      - name: Freigabe-Logik testen
+        run: node --no-warnings test/lease-sim.mjs

@@ -27,6 +27,11 @@ local.properties
 [Ww]indows/**/obj/
 [Ww]indows/publish/
 
+# Cloudflare Worker (Monitor-Freigabe)
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars
+
 # Lokale Screenshots/Designs (nicht fuer CI)
 Screens&Design/
 x11build.log

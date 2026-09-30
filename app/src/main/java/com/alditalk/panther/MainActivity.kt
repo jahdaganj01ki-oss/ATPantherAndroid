@@ -19,6 +19,8 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.alditalk.panther.data.LogDao
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.monitor.LockDialog
+import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.service.MonitorService
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
@@ -69,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearCache: MaterialButton
     private lateinit var btnExportLog: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
+    private lateinit var btnLock: MaterialButton
     private lateinit var rvLog: RecyclerView
 
     private var isServiceRunning = false
@@ -129,6 +132,7 @@ class MainActivity : AppCompatActivity() {
         btnClearCache = findViewById(R.id.btnClearCache)
         btnExportLog = findViewById(R.id.btnExportLog)
         btnBatteryOpt = findViewById(R.id.btnBatteryOpt)
+        btnLock = findViewById(R.id.btnLock)
         rvLog = findViewById(R.id.rvLog)
 
         rvLog.layoutManager = LinearLayoutManager(this)
@@ -167,6 +171,9 @@ class MainActivity : AppCompatActivity() {
         btnBatteryOpt.setOnClickListener {
             requestIgnoreBatteryOptimizations()
         }
+
+        // Monitor-Freigabe: sorgt dafuer, dass nur eine Variante abfragt
+        btnLock.setOnClickListener { LockDialog.show(this) }
 
         // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix)
         val logDao = (application as PantherApp).database.logDao()
@@ -353,6 +360,18 @@ class MainActivity : AppCompatActivity() {
     // ── Service control ──
 
     private fun startMonitor() {
+        // Ohne Freigabe-URL startet der Monitor nicht: der Schutz gegen
+        // parallele Abfragen mehrerer Varianten ist bewusst fail-closed.
+        if (!MonitorGate(this).isConfigured()) {
+            Toast.makeText(
+                this,
+                "Ohne Freigabe-URL startet der Monitor nicht.\n\nBitte bei „Freigabe“ die " +
+                    "Worker-URL eintragen und speichern.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
         if (state.getBoolean("paused_after_connection_failures", false)) {
             // Erster Start-Tipp hebt die Pause NUR auf – der Monitor startet
@@ -408,7 +427,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── Log RecyclerView Adapter ──
-
     /**
      * X11Pro-Freeze-Fix: ListAdapter mit DiffUtil statt RecyclerView.Adapter +
      * notifyDataSetChanged(). Jede neue Log-Zeile (alle 60 s) bindet nur die

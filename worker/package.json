@@ -1,0 +1,17 @@
+{
+  "name": "at-panther-lock",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + D1: zentrale Monitor-Freigabe fuer AT Panther (nur eine Variante darf abfragen)",
+  "scripts": {
+    "test": "node test/lease-sim.mjs",
+    "deploy": "npx wrangler deploy",
+    "dev": "npx wrangler dev",
+    "d1:create": "npx wrangler d1 create at-panther-lock",
+    "d1:schema": "npx wrangler d1 execute at-panther-lock --remote --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

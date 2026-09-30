@@ -12,6 +12,7 @@ public partial class MainWindow : Window
     private readonly MonitorStateStore _state = new();
     private readonly WarningPrefs _warnings = new();
     private readonly AppDb _db = new();
+    private readonly MonitorGate _gate = new();
     private readonly MonitorService _monitor;
     private bool _pwVisible;
     private bool _uiReady;
@@ -37,6 +38,16 @@ public partial class MainWindow : Window
                 MessageBox.Show("⛔ AT Panther pausiert nach wiederholten Fehlern. Zum Fortsetzen zweimal auf Start tippen.",
                     "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning);
                 App.ShowTrayNotification("AT Panther", "Monitor pausiert nach wiederholten Fehlern");
+            });
+            _monitor.Standby += r => Dispatcher.Invoke(() =>
+            {
+                ShowLockStatus(r);
+                BtnToggle.Content = "Monitor starten";
+                MessageBox.Show(
+                    $"⏸ Bereitschaftsmodus\n\n{r.Detail}\n\n" +
+                    "Diese Variante fragt das ALDI-Talk-Portal NICHT ab. " +
+                    "Mit „Übernehmen“ holst du die Überwachung auf diesen Rechner.",
+                    "AT Panther", MessageBoxButton.OK, MessageBoxImage.Information);
             });
 
             StateChanged += (_, _) =>
@@ -109,6 +120,11 @@ public partial class MainWindow : Window
             EtThreshold.Text = c.ThresholdMb > 0 ? c.ThresholdMb.ToString("0") : AppConfig.DefaultThresholdMb.ToString("0");
             EtInterval.Text = c.IntervalSec > 0 ? c.IntervalSec.ToString() : AppConfig.DefaultIntervalSec.ToString();
             ChkAutostart.IsChecked = IsAutostartEnabled();
+            var lockSettings = _gate.LoadSettings();
+            EtLockUrl.Text = lockSettings.WorkerUrl;
+            EtLockToken.Text = lockSettings.WorkerToken;
+            ChkFailOpen.IsChecked = lockSettings.FailOpen;
+            ShowLockStatus(_gate.CachedStatus());
             FileLogger.Info("Settings loaded.");
         }
         catch (Exception ex)
@@ -188,6 +204,16 @@ public partial class MainWindow : Window
             FileLogger.Info("Pause cleared by user.");
             return;
         }
+        // Ohne Freigabe-URL startet der Monitor nicht: der Schutz gegen
+        // parallele Abfragen mehrerer Varianten ist bewusst fail-closed.
+        if (!_gate.IsConfigured())
+        {
+            MessageBox.Show(
+                "Ohne Freigabe-URL startet der Monitor nicht.\n\n" +
+                "Bitte unten bei „Monitor-Freigabe“ die Worker-URL eintragen und speichern.",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         var phone = EtPhone.Text.Trim();
         var pw = CurrentPassword();
         if (string.IsNullOrEmpty(phone) || string.IsNullOrEmpty(pw))
@@ -205,6 +231,84 @@ public partial class MainWindow : Window
     }
 
     private void OnBackClicked(object sender, RoutedEventArgs e) => Tabs.SelectedIndex = 0;
+
+    // ── Monitor-Freigabe (nur eine Variante darf das Portal abfragen) ──────
+
+    private void ShowLockStatus(GateResult r)
+    {
+        var headline = r.Status switch
+        {
+            GateStatus.Allowed => "✅ Freigabe aktiv: " + r.Owner,
+            GateStatus.NotOwner => "⏸ Bereitschaft: " + r.Owner + " fragt ab",
+            GateStatus.Free => "⚪ Freigabe frei – Übernehmen tippen",
+            GateStatus.NotConfigured => "⚠ Freigabe nicht konfiguriert",
+            GateStatus.Unreachable => "⛔ Freigabe-Server nicht erreichbar",
+            _ => "⚠ Freigabe unsicher",
+        };
+        TvLock.Text = headline + Environment.NewLine + r.Detail;
+    }
+
+    private async void OnLockSaveClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _gate.SaveSettings(EtLockUrl.Text, EtLockToken.Text, ChkFailOpen.IsChecked == true);
+            // Ungueltige Eingaben zurueckspiegeln, damit klar ist, was gespeichert ist
+            var saved = _gate.LoadSettings();
+            EtLockUrl.Text = saved.WorkerUrl;
+            EtLockToken.Text = saved.WorkerToken;
+            FileLogger.Info($"Freigabe gespeichert: url={saved.WorkerUrl} failOpen={saved.FailOpen}");
+            ShowLockStatus(await _gate.EvaluateAsync(autoClaim: false));
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Speichern der Freigabe:\n{ex.Message}",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void OnLockClaimClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!_gate.IsConfigured())
+            {
+                MessageBox.Show("Bitte zuerst die URL speichern.", "AT Panther",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            var answer = MessageBox.Show(
+                "Übernehmen?\n\nDie andere Variante wird dadurch beim nächsten Check selbstständig " +
+                "in den Bereitschaftsmodus geschaltet und fragt das Portal nicht mehr ab.",
+                "AT Panther", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (answer != MessageBoxResult.Yes) return;
+
+            ShowLockStatus(await _gate.ClaimAsync());
+            FileLogger.Info("Freigabe übernommen.");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Übernehmen:\n{ex.Message}",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void OnLockReleaseClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ShowLockStatus(await _gate.ReleaseAsync());
+            FileLogger.Info("Freigabe abgegeben.");
+        }
+        catch (Exception ex)
+        {
+            FileLogger.Error(ex);
+            MessageBox.Show($"Fehler beim Freigeben:\n{ex.Message}",
+                "AT Panther", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     /// <summary>
     /// Guthaben-Warnung: Tray-Balloon + modaler Dialog mit zwei Aktionen.

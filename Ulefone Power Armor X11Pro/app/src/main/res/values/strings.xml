@@ -7,4 +7,18 @@
     <string name="channel_no_tariff_warning_name">Guthaben-Warnung</string>
     <string name="channel_no_tariff_warning_description">Warnt, wenn kein Datentarif gebucht ist und Datenvolumen direkt Guthaben kostet</string>
     <string name="monitor_start">Monitor starten</string>
+
+    <!-- Monitor-Freigabe: bestimmt, welche Variante das Portal abfragen darf.
+         Muss pro Variante eindeutig sein, sonst gelten zwei Geräte als eines. -->
+    <string name="monitor_variant_id" translatable="false">ulefone</string>
+
+    <string name="lock_title">Monitor-Freigabe</string>
+    <string name="lock_hint_url">URL des Cloudflare Workers</string>
+    <string name="lock_hint_token">Token (nur falls gesetzt)</string>
+    <string name="lock_claim">Übernehmen</string>
+    <string name="lock_close">Schließen</string>
+    <string name="lock_release">Freigeben</string>
+    <string name="lock_save">Freigabe speichern</string>
+    <string name="lock_fail_open">Bei Server-Ausfall weiterlaufen (nicht empfohlen)</string>
+    <string name="lock_claim_confirm">Übernehmen?\n\nDie andere Variante wird dadurch beim nächsten Check selbstständig in den Bereitschaftsmodus geschaltet und fragt das Portal nicht mehr ab.</string>
 </resources>

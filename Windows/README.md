@@ -40,5 +40,14 @@ dotnet publish src/ATPanther/ATPanther.csproj -c Release -r win-x64 --self-conta
 - Nach 3 Verbindungsfehlern oder 5 Re-Logins ohne Abfrage: ⛔ Pause,
   Fortsetzung nur manuell (2× Start: 1. hebt Pause auf ohne Login,
   2. startet)
-- Daten: `%AppData%/ATPanther/` (DPAPI-Credentials, State-JSON, SQLite-Log)
+- **Monitor-Freigabe**: Die Windows-Variante ist der Standard-Owner, aber nur
+  solange sie die Lease im Cloudflare Worker hält (siehe
+  [`../worker/README.md`](../worker/README.md)). Läuft dieselbe App auf
+  Ulefone/Moto, darf immer nur **eine** Variante das Portal abfragen; die
+  anderen starten nicht („⏸ Bereitschaft"). Umschalten über
+  *Monitor-Freigabe → Übernehmen*. Ohne eingetragene Worker-URL startet der
+  Monitor bewusst nicht (fail-closed).
+- Daten: `%AppData%/ATPanther/` (DPAPI-Credentials, State-JSON, SQLite-Log,
+  `lock_settings.json` + `lock_cache.json` für die Freigabe – enthalten nur
+  URL/Variantenname, keine Zugangsdaten)
 - Autostart: Checkbox schreibt `HKCU\...\Run\ATPanther`

@@ -6,12 +6,15 @@ public sealed class MonitorService
     public event Action<string, float>? StatusChanged;
     public event Action<string>? LogAdded;
     public event Action? Paused;
+    /// <summary>Wird ausgeloest, wenn eine andere Variante die Monitor-Freigabe haelt.</summary>
+    public event Action<GateResult>? Standby;
     /// <summary>Wird ausgeloest wenn kein Basis-Tarif und kein Add-on aktiv ist (Guthaben-Risiko).</summary>
     public event Action<TariffStatus>? NoTariffWarning;
 
     private readonly AppDb _db;
     private readonly MonitorStateStore _state;
     private readonly WarningPrefs _warnings = new();
+    private readonly MonitorGate _gate = new();
     private CancellationTokenSource? _cts;
 
     public bool IsRunning => _cts != null;
@@ -45,11 +48,41 @@ public sealed class MonitorService
 
     private void Status(string text, float remaining = -1)
         => StatusChanged?.Invoke(remaining >= 0 ? $"{text}  ({remaining:F1} MB)" : text, remaining);
+
+    /// <summary>
+    /// Bereitschaftsmodus: eine andere Variante haelt die Freigabe, oder der
+    /// Freigabe-Server ist nicht erreichbar. Es wird bewusst KEIN Login
+    /// versucht - das Portal bleibt unberuehrt. Der Loop endet hier; weiter
+    /// geht es erst, wenn die Freigabe aktiv uebernommen wird.
+    /// </summary>
+    private void EnterStandby(GateResult result)
+    {
+        var msg = $"⏸ Bereitschaft – {result.Detail}";
+        FileLogger.Warning($"Monitor: standby ({result.Detail})");
+        Status(msg);
+        Log("CHECK", 0, msg);
+        App.ShowTrayNotification("AT Panther", $"Bereitschaft: {result.Detail}");
+        Standby?.Invoke(result);
+        Stop();
+    }
+
     private async Task RunAsync(string phone, string password, float thresholdMb, int intervalSec, CancellationToken ct)
     {
         var auth = new AuthService();
         int failures = 0, relogins = 0;
         DateTime lastAgeTrim = DateTime.MinValue, lastLimitTrim = DateTime.MinValue;
+
+        // ── Freigabe-Gate ─────────────────────────────────────────────────
+        // Nur der Inhaber der Lease darf das Portal abfragen. Die Pruefung steht
+        // bewusst VOR dem Login: die ForgeRock-PoW-Kette ist der teuerste Teil
+        // eines Durchlaufs und wuerde sonst auf mehreren Geraeten parallel feuern.
+        Status("Pruefe Freigabe...");
+        var startGate = await _gate.EvaluateAsync(autoClaim: true, ct).ConfigureAwait(false);
+        if (!startGate.Allowed)
+        {
+            EnterStandby(startGate);
+            return;
+        }
 
         Status("Verbinde...");
         var login = await auth.LoginAsync(phone, password, ct).ConfigureAwait(false);
@@ -80,6 +113,16 @@ public sealed class MonitorService
         {
             try
             {
+                // Freigabe vor jedem Poll. EvaluateAsync nutzt einen 5-Minuten-Cache
+                // und kostet damit hoechstens einen Abruf / 5 min. Verliert ein
+                // anderes Geraet die Freigabe, endet dieser Loop hier.
+                var gateResult = await _gate.EvaluateAsync(autoClaim: true, ct).ConfigureAwait(false);
+                if (!gateResult.Allowed)
+                {
+                    EnterStandby(gateResult);
+                    return;
+                }
+
                 if (DateTime.UtcNow - lastAgeTrim > TimeSpan.FromHours(1))
                 {
                     _db.DeleteOlderThan(DateTimeOffset.UtcNow.AddDays(-AppConfig.LogRetentionDays).ToUnixTimeMilliseconds());

@@ -223,18 +223,41 @@
                 app:backgroundTint="@color/button_filled_gray"
                 app:cornerRadius="20dp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnBatteryOpt"
-                style="@style/Widget.Material3.Button.OutlinedButton"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minHeight="40dp"
                 android:layout_marginTop="4dp"
-                android:text="Batterie-Optimierung ignorieren"
-                android:textSize="12sp"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:singleLine="true" />
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLock"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:text="@string/lock_title"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:singleLine="true" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnBatteryOpt"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:minHeight="40dp"
+                    android:text="Akku-Schutz"
+                    android:contentDescription="Batterie-Optimierung ignorieren"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:singleLine="true" />
+
+            </LinearLayout>
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

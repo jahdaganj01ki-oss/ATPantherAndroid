@@ -13,7 +13,10 @@ import com.alditalk.panther.R
 import com.alditalk.panther.api.AldiTalkApi
 import com.alditalk.panther.auth.AuthService
 import com.alditalk.panther.data.AppDatabase
+import com.alditalk.panther.data.LogDao
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.monitor.GateResult
+import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.warning.NoTariffWarningManager
 import com.alditalk.panther.warning.WarningPrefs
 import kotlinx.coroutines.*
@@ -43,6 +46,7 @@ class MonitorService : Service() {
         // ueberleben (die FGS-Notification verschwindet mit stopSelf()).
         private const val CHANNEL_ID_ALERTS = "at_panther_alerts"
         private const val NOTIFICATION_ID_ALERT = 2
+        private const val NOTIFICATION_ID_STANDBY = 3
         private const val MAX_CONSECUTIVE_CONNECTION_FAILURES = 3
 
         // Schutz vor Account-Sperre: pausiert auch den Fall "Login klappt,
@@ -55,6 +59,7 @@ class MonitorService : Service() {
         private const val PREFS_NAME = "at_panther_monitor_state"
         private const val PREF_CONNECTION_FAILURES = "consecutive_connection_failures"
         private const val PREF_PAUSED_AFTER_FAILURES = "paused_after_connection_failures"
+        private const val PREF_STANDBY = "lock_standby"
         private const val WAKELOCK_TAG = "ATPanther:MonitorWake"
 
         // Default-Schwelle (Anforderung 2) – 850 MB
@@ -109,6 +114,7 @@ class MonitorService : Service() {
         if (intent?.action == ACTION_STOP) {
             cancelFallbackAlarm()
             cancelPausedAlert()
+            cancelStandbyAlert()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -143,6 +149,8 @@ class MonitorService : Service() {
 
         // Foreground-Status direkt sichern – sonst crasht startForegroundService
         startForeground(NOTIFICATION_ID, buildNotification("Starte Monitor..."))
+        // Eine noch sichtbare Bereitschafts-Meldung aus dem letzten Lauf raeumen.
+        cancelStandbyAlert()
         // Evtl. noch sichtbare Pause-Alarm-Meldung aus dem letzten Lauf raeumen.
         cancelPausedAlert()
 
@@ -314,6 +322,21 @@ class MonitorService : Service() {
         intervalSec: Int,
     ) {
         val logDao = AppDatabase.getDatabase(this).logDao()
+        val gate = MonitorGate(this)
+
+        // -- Freigabe-Gate ------------------------------------------------
+        // Nur der Inhaber der Lease darf das Portal abfragen. Die Pruefung
+        // steht bewusst VOR dem Login: die ForgeRock-PoW-Kette ist der
+        // teuerste Teil eines Durchlaufs und wuerde sonst auf jedem Geraet
+        // parallel feuern.
+        updateNotification("Pruefe Freigabe...")
+        broadcastStatus("Pruefe Freigabe...", -1f)
+        val startGate = gate.evaluate(autoClaim = true)
+        if (!startGate.allowed) {
+            enterStandby(logDao, startGate)
+            return
+        }
+        clearStandby()
 
         // Initialer Login
         updateNotification("Anmelde...")
@@ -361,6 +384,14 @@ class MonitorService : Service() {
 
         while (isRunning && serviceJob?.isActive == true) {
             try {
+                // Freigabe vor jedem Poll. evaluate() nutzt einen 5-Minuten-
+                // Cache und kostet damit hoechstens einen Abruf / 5 min. Verliert
+                // ein anderes Geraet die Freigabe, endet dieser Loop hier.
+                val gateResult = gate.evaluate(autoClaim = true)
+                if (!gateResult.allowed) {
+                    enterStandby(logDao, gateResult)
+                    return
+                }
                 loopCount++
                 if (loopCount % 60 == 1) {
                     // ca. 1× pro Stunde: Einträge älter als 7 Tage löschen
@@ -697,7 +728,78 @@ class MonitorService : Service() {
         } catch (_: Exception) {
             // ignore
         }
+    }    // -- Freigabe / Bereitschaftsmodus --
+
+    /**
+     * Bereitschaftsmodus: eine andere Variante haelt die Freigabe, oder der
+     * Freigabe-Server ist nicht erreichbar. Es wird bewusst KEIN Login
+     * versucht - das Portal bleibt unberuehrt. Der Fallback-Wecker wird
+     * abbestellt, damit nicht im Minutentakt neu gestartet wird; weiter geht
+     * es erst, wenn die Freigabe aktiv uebernommen wird.
+     *
+     *  - Log-Eintrag, damit der Zustand im Verlauf nachvollziehbar bleibt
+     *  - eigene Benachrichtigung, die das Service-Stop ueberlebt
+     *  - Status-Flag blockiert Boot- und AlarmManager-Neustarts
+     */
+    private fun enterStandby(logDao: LogDao, result: GateResult) {
+        Log.w(TAG, "Bereitschaftsmodus: ${result.detail}")
+        val msg = "⏸ Bereitschaft – ${result.detail}"
+        try {
+            logDao.insert(LogEntry(type = "CHECK", message = msg))
+        } catch (e: Exception) {
+            Log.w(TAG, "Standby-Log fehlgeschlagen", e)
+        }
+        cancelFallbackAlarm()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        showStandbyAlert(msg)
+        setStandby(true)
+        stopSelf()
     }
+
+    private fun showStandbyAlert(msg: String) {
+        try {
+            val contentIntent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 2, contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
+                .setContentTitle("AT Panther im Bereitschaftsmodus")
+                .setContentText(msg)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "$msg\n\nDiese Variante fragt das ALDI-Talk-Portal NICHT ab. " +
+                        "In der App bei „Freigabe“ auf „Übernehmen“ tippen, um die " +
+                        "Überwachung auf dieses Gerät zu holen."
+                ))
+                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setColor(getColor(R.color.primary))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID_STANDBY, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "Bereitschafts-Benachrichtigung fehlgeschlagen", e)
+        }
+    }
+
+    private fun cancelStandbyAlert() {
+        try {
+            getSystemService(NotificationManager::class.java)
+                .cancel(NOTIFICATION_ID_STANDBY)
+        } catch (_: Exception) {
+            // ignore
+        }
+    }
+
+    private fun setStandby(standby: Boolean) {
+        monitorState().edit().putBoolean(PREF_STANDBY, standby).apply()
+    }
+
+    private fun clearStandby() = setStandby(false)
+
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

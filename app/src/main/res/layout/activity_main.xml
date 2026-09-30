@@ -199,6 +199,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Monitor starten" />
+                <!-- Monitor-Freigabe: nur eine Variante darf das Portal abfragen -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLock"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/lock_title" />
 
                 <!-- Batterie-Whitelist für aggressive EMUI/Huawei-Geräte -->
                 <com.google.android.material.button.MaterialButton
@@ -211,7 +219,6 @@
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
         <!-- ── Wartungs-Buttons (Cache + Log-Export) ── -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

@@ -1,0 +1,15 @@
+name = "at-panther-lock"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# D1-Datenbank. Die database_id trägtst du nach `npx wrangler d1 create at-panther-lock`
+# ein (siehe README.md in diesem Ordner).
+[[d1_databases]]
+binding = "DB"
+database_name = "at-panther-lock"
+database_id = "HIER-DATABASE-ID-EINTRAGEN"
+
+# Optionaler Schutz gegen Fremdzugriffe. Wenn gesetzt, muss jeder Client
+# den Header "X-Lock-Token" mitsenden. Leer lassen = ohne Token (Inhalt der
+# Sperre ist harmlos: nur ein Variantenname + Zeitstempel).
+# wrangler.toml wrangler secret put LOCK_TOKEN

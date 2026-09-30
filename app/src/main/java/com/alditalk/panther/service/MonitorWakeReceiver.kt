@@ -39,6 +39,12 @@ class MonitorWakeReceiver : BroadcastReceiver() {
             Log.i(TAG, "Monitor-Neustart übersprungen: Verbindung ist nach 3 Fehlern pausiert")
             return
         }
+        // Bereitschaftsmodus: eine andere Variante hat die Monitor-Freigabe.
+        // Ein Neustart wuerde nur wieder in den Bereitschaftsmodus laufen.
+        if (state.getBoolean("lock_standby", false)) {
+            Log.i(TAG, "Monitor-Neustart übersprungen: Monitor-Freigabe liegt bei einer anderen Variante")
+            return
+        }
 
         val svcIntent = Intent(context, MonitorService::class.java).apply {
             source?.getStringExtra(MonitorService.EXTRA_PHONE)?.let { putExtra(MonitorService.EXTRA_PHONE, it) }

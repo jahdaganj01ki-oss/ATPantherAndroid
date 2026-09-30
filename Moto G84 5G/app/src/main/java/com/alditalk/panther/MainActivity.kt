@@ -21,6 +21,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import androidx.viewpager2.widget.ViewPager2
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.monitor.LockDialog
+import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.service.MonitorService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -405,7 +407,23 @@ class MainActivity : AppCompatActivity() {
 
     // ── Service control ──
 
+    /** Freigabe-Dialog oeffnen (nur eine Variante darf das Portal abfragen). */
+    fun onLockClicked() {
+        LockDialog.show(this)
+    }
+
     private fun startMonitor() {
+        // Ohne Freigabe-URL startet der Monitor nicht: der Schutz gegen
+        // parallele Abfragen mehrerer Varianten ist bewusst fail-closed.
+        if (!MonitorGate(this).isConfigured()) {
+            Toast.makeText(
+                this,
+                "Ohne Freigabe-URL startet der Monitor nicht.\n\nBitte bei „Freigabe“ die " +
+                    "Worker-URL eintragen und speichern.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
         val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
         if (state.getBoolean("paused_after_connection_failures", false)) {
             // Erster Start-Tipp hebt die Pause NUR auf – der Monitor startet
