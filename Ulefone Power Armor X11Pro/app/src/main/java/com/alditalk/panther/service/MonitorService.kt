@@ -747,7 +747,7 @@ class MonitorService : Service() {
      *  - eigene Benachrichtigung, die das Service-Stop ueberlebt
      *  - Status-Flag blockiert Boot- und AlarmManager-Neustarts
      */
-    private fun enterStandby(logDao: LogDao, result: GateResult) {
+    private suspend fun enterStandby(logDao: LogDao, result: GateResult) {
         Log.w(TAG, "Bereitschaftsmodus: ${result.detail}")
         val msg = "⏸ Bereitschaft – ${result.detail}"
         try {
