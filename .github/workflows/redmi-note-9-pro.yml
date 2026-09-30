@@ -57,21 +57,26 @@ jobs:
           echo "ATP_KEYSTORE_PATH=$GITHUB_WORKSPACE/Redmi Note 9 Pro/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-build.log
+        run: |
+          # pipefail ist noetig: ohne ihn verschluckt tee den Exit-Code von
+          # Gradle und der Schritt meldet Erfolg, obwohl nichts gebaut wurde.
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-build.log
 
-      # Gradle-Fehler als Check-Annotation ausgeben: sie erscheinen direkt am
-      # Commit und lassen sich ohne Login ueber die API auslesen.
+      # Gradle-/kotlinc-Fehler als Check-Annotation ausgeben: sie stehen
+      # direkt am Commit und sind ohne Login ueber die API auslesbar.
       - name: Buildfehler ausgeben
-        if: failure()
+        if: always()
         run: |
           if [ -f gradle-build.log ]; then
             tr -d '\r' < gradle-build.log |
-              grep -E '^e: |error: |ERROR: error|FAILURE:|^> Task .* FAILED|AAPT: error' |
-              head -25 |
+              grep -E '^e: |error:|ERROR|FAILURE:|^> Task .* FAILED|What went wrong' |
+              head -30 |
               while IFS= read -r line; do
                 echo "::error::$line"
               done
           fi
+          exit 0
 
       - name: Build Release APK (nur mit Keystore-Secrets)
         if: env.HAS_KEYSTORE == 'true'

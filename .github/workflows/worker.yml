@@ -33,6 +33,8 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Schema anwenden
+        run: sqlite3 :memory: < schema.sql
+
       - name: Freigabe-Logik testen
-        # Wendet schema.sql selbst auf eine In-Memory-Datenbank an.
         run: node --no-warnings test/lease-sim.mjs
