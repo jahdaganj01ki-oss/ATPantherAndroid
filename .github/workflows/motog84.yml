@@ -57,7 +57,21 @@ jobs:
           echo "ATP_KEYSTORE_PATH=$GITHUB_WORKSPACE/Moto G84 5G/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build Debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-build.log
+
+      # Gradle-Fehler als Check-Annotation ausgeben: sie erscheinen direkt am
+      # Commit und lassen sich ohne Login ueber die API auslesen.
+      - name: Buildfehler ausgeben
+        if: failure()
+        run: |
+          if [ -f gradle-build.log ]; then
+            tr -d '\r' < gradle-build.log |
+              grep -E '^e: |error: |ERROR: error|FAILURE:|^> Task .* FAILED|AAPT: error' |
+              head -25 |
+              while IFS= read -r line; do
+                echo "::error::$line"
+              done
+          fi
 
       - name: Build Release APK (nur mit Keystore-Secrets)
         if: env.HAS_KEYSTORE == 'true'
