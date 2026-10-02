@@ -22,11 +22,15 @@ private class SimpleTextWatcher(private val onChanged: (String) -> Unit) : TextW
 }
 
 /**
- * MotoG84 v1.3: Haupt-Seite (ViewPager Seite 0).
- * Screenshot-Layout: Login-Daten + Einstellungen + Speichern in Card 1,
- * Monitor + Wartung in Card 2. Service-Steuerung und Export laufen ueber
- * die MainActivity (dort liegen Prefs/Service-State), das Fragment meldet
- * nur Aktionen zurueck.
+ * MotoG84 v1.6: Die EINE Seite – Freigabe, Login-Daten, Monitor und Verlauf.
+ * Screenshot-Layout mit den beiden Karten (Login/Monitor) plus der neuen
+ * Freigabe-Karte oben und dem Verlauf unten. Service-Steuerung und Export
+ * laufen ueber die MainActivity (dort liegen Prefs/Service-State), das Fragment
+ * meldet nur Aktionen zurueck.
+ *
+ * Der Verlauf (RecyclerView mit fester Hoehe) ist bewusst hier und nicht in
+ * einem eigenen ViewPager: er sitzt in einem ScrollView mit FESTER Hoehe, damit
+ * das Recycling erhalten bleibt (kein Messen aller 200 Zeilen).
  */
 class MainFragment : Fragment() {
 
@@ -42,9 +46,22 @@ class MainFragment : Fragment() {
     private lateinit var btnToggle: MaterialButton
     private lateinit var btnSave: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
-    private lateinit var btnLock: MaterialButton
     private lateinit var btnTogglePassword: MaterialButton
+
+    // v1.6: Freigabe direkt auf der Seite
+    private lateinit var tvLockInline: android.widget.TextView
+    private lateinit var btnLockClaimInline: MaterialButton
+    private lateinit var btnLockReleaseInline: MaterialButton
+    private lateinit var btnLockSettings: MaterialButton
+
+    // v1.6: Verlauf + Wartung ebenfalls auf dieser Seite
+    private lateinit var rvLog: androidx.recyclerview.widget.RecyclerView
+    private lateinit var btnClearCache: View
+    private lateinit var btnExportLog: View
+
+    private val adapter = LogListAdapter()
     private var passwordVisible = false
+    private var lastTopLogId: Long? = null
 
     private fun host(): MainActivity = requireActivity() as MainActivity
 
@@ -65,8 +82,18 @@ class MainFragment : Fragment() {
         btnToggle = view.findViewById(R.id.btnToggleMonitor)
         btnSave = view.findViewById(R.id.btnSaveCredentials)
         btnBatteryOpt = view.findViewById(R.id.btnBatteryOpt)
-        btnLock = view.findViewById(R.id.btnLock)
         btnTogglePassword = view.findViewById(R.id.btnTogglePassword)
+
+        // v1.6: Freigabe direkt auf der Seite
+        tvLockInline = view.findViewById(R.id.tvLockStatusInline)
+        btnLockClaimInline = view.findViewById(R.id.btnLockClaimInline)
+        btnLockReleaseInline = view.findViewById(R.id.btnLockReleaseInline)
+        btnLockSettings = view.findViewById(R.id.btnLockSettings)
+
+        // v1.6: Verlauf + Wartung ebenfalls auf dieser Seite
+        rvLog = view.findViewById(R.id.rvLog)
+        btnClearCache = view.findViewById(R.id.btnClearCache)
+        btnExportLog = view.findViewById(R.id.btnExportLog)
 
         // MotoG84 v1.5: Passwort anzeigen/verbergen (Auge-Button).
         btnTogglePassword.setOnClickListener {
@@ -114,8 +141,70 @@ class MainFragment : Fragment() {
         btnToggle.setOnClickListener { activity.onToggleClicked() }
         btnSave.setOnClickListener { activity.onSaveClicked() }
         btnBatteryOpt.setOnClickListener { activity.onBatteryOptClicked() }
-        // Monitor-Freigabe: sorgt dafuer, dass nur eine Variante abfragt
-        btnLock.setOnClickListener { activity.onLockClicked() }
+
+        // ── v1.6: Freigabe direkt bedienbar ────────────────────────────────
+        // Übernehmen = Freigabe an dieses Handy holen (verdrängt die andere
+        // Variante, die daraufhin selbst in Bereitschaft geht).
+        btnLockClaimInline.setOnClickListener { activity.onLockClaimInline() }
+        btnLockReleaseInline.setOnClickListener { activity.onLockReleaseInline() }
+        btnLockSettings.setOnClickListener { activity.onLockClicked() }
+
+        // ── v1.6: Verlauf + Wartung ────────────────────────────────────────
+        val lm = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
+        rvLog.layoutManager = lm
+        rvLog.adapter = adapter
+        rvLog.setHasFixedSize(true)
+        // itemAnimator = null: die Default-Animation lief bei jedem 60-s-Diff
+        // auf der schwachen GPU und erzeugte Ruckler auf dem 120-Hz-Display.
+        rvLog.itemAnimator = null
+        rvLog.setItemViewCacheSize(20)
+
+        btnClearCache.setOnClickListener { activity.onClearCacheClicked() }
+        btnExportLog.setOnClickListener { activity.onExportLogClicked() }
+
+        activity.logState.entries.observe(viewLifecycleOwner) { entries ->
+            val newTopId = entries.firstOrNull()?.id
+            // Nur automatisch nach oben springen, wenn der Nutzer ohnehin am
+            // Anfang der Liste steht – sonst würde jede Aktualisierung den
+            // gerade gelesenen Eintrag wegschieben.
+            val stickToNewest = lastTopLogId == null || lm.findFirstVisibleItemPosition() <= 1
+            lastTopLogId = newTopId
+            adapter.submitList(entries) {
+                if (stickToNewest && entries.isNotEmpty()) rvLog.scrollToPosition(0)
+            }
+        }
+
+        // Startzustand der Freigabe aus dem Cache (blockiert nie).
+        renderLock(activity.cachedLockStatus())
+    }
+
+    /** Zeigt den Freigabe-Status in der Karte oben an. */
+    fun renderLock(result: com.alditalk.panther.monitor.GateResult) {
+        if (!::tvLockInline.isInitialized) return
+        val headline = when (result.status) {
+            com.alditalk.panther.monitor.GateStatus.ALLOWED ->
+                "✅ Freigabe aktiv: ${result.owner}"
+            com.alditalk.panther.monitor.GateStatus.NOT_OWNER ->
+                "⏸ Bereitschaft – aktiv: ${result.owner}"
+            com.alditalk.panther.monitor.GateStatus.FREE ->
+                "⚪ Freigabe frei – „Hier übernehmen“ tippen"
+            com.alditalk.panther.monitor.GateStatus.NOT_CONFIGURED ->
+                "⚠ Keine Freigabe-URL eingetragen"
+            com.alditalk.panther.monitor.GateStatus.UNREACHABLE ->
+                "⛔ Freigabe-Server nicht erreichbar"
+            else -> "⚠ Freigabe unsicher"
+        }
+        val text = if (result.allowed && result.cooldownMs > 0) {
+            "$headline\n${result.detail}\n⏳ Erste Abfrage in ${result.cooldownMs / 1000} s"
+        } else {
+            "$headline\n${result.detail}"
+        }
+        tvLockInline.text = text
+        tvLockInline.setTextColor(
+            requireContext().getColor(
+                if (result.allowed) R.color.status_ok else R.color.status_warn
+            )
+        )
     }
 
     fun currentPhone(): String =

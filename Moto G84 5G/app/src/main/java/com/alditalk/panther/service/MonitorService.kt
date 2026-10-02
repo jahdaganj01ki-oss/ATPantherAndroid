@@ -83,8 +83,39 @@ class MonitorService : Service() {
 
         /** Broadcast action sent on status update. */
         const val ACTION_STATUS_UPDATE = "com.alditalk.panther.STATUS_UPDATE"
+
         const val EXTRA_STATUS_TEXT = "status_text"
         const val EXTRA_REMAINING_MB = "remaining_mb"
+
+        /**
+         * Android-15-Nachhilfe: stellt den Fallback-Alarm nach einem Reboot scharf,
+         * ohne den Foreground-Service direkt zu starten (das ist aus
+         * BOOT_COMPLETED ab API 35 verboten).
+         *
+         * Der Alarm laeuft kurz nach dem Boot und startet den Dienst dann ganz
+         * normal – zu diesem Zeitpunkt ist der Boot-Vorgang abgeschlossen, die
+         * Einschraenkung greift also nicht mehr. Voraussetzung ist, dass die
+         * App auf der Batterie-Whitelist steht (Button "Akku-Schutz" in der App).
+         */
+        fun scheduleFallbackAfterBoot(context: Context) {
+            try {
+                val alarmMgr =
+                    context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val intent = Intent(context, MonitorWakeReceiver::class.java).apply {
+                    action = MonitorWakeReceiver.ACTION_RESTART_MONITOR
+                }
+                // 60 s nach Boot: genug Zeit, dass das System hochgefahren ist.
+                val triggerAt = System.currentTimeMillis() + 60_000L
+                val pi = PendingIntent.getBroadcast(
+                    context, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                Log.i(TAG, "Fallback-Alarm nach Boot gesetzt (+60 s)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback-Alarm nach Boot konnte nicht gesetzt werden", e)
+            }
+        }
     }
 
     private var serviceJob: Job? = null
@@ -268,12 +299,14 @@ class MonitorService : Service() {
     // ── AlarmManager-Fallback ──
 
     /**
-     * Plant einen AlarmManager-Ping, der den Service nach Ablauf des Intervalls
-     * erneut startet – selbst wenn Moto-Doze/App-Standby den Job vorher beendet hat.
+     * Android-15-Nachhilfe: stellt den Fallback-Alarm nach einem Reboot scharf,
+     * ohne den Foreground-Service direkt zu starten (das ist aus
+     * BOOT_COMPLETED ab API 35 verboten).
      *
-     * Wir richten den PendingIntent gegen [MonitorWakeReceiver] (Broadcast),
-     * da Hintergrund-Service-Starts unter Android 8+ (Doze/Standby) Restriktionen
-     * unterliegen, ein dynamischer Broadcast-Receiver jedoch weiterhin aufwachen darf.
+     * Der Alarm laeuft kurz nach dem Boot und startet den Dienst dann ganz
+     * normal – zu diesem Zeitpunkt ist der Boot-Vorgang abgeschlossen, die
+     * Einschraenkung greift also nicht mehr. Voraussetzung ist, dass die App
+     * auf der Batterie-Whitelist steht (Button "Akku-Schutz" in der App).
      */
     private fun scheduleFallbackAlarm(intervalSec: Int) {
         try {
@@ -337,6 +370,21 @@ class MonitorService : Service() {
             return
         }
         clearStandby()
+
+        // Nach einer FRISCHEN Uebernahme kurz warten, bevor das Portal
+        // zum ersten Mal angefasst wird. Das alte Geraet kann noch mitten in
+        // einem Durchlauf stehen; ein sofortiger erster Poll wuerde die
+        // Abfragen zu dicht aufeinander legen (Sperr-Risiko).
+        if (startGate.cooldownMs > 0) {
+            val waitMsg = "Freigabe uebernommen – warte ${startGate.cooldownMs / 1000} s " +
+                "bevor das Portal abgefragt wird"
+            Log.i(TAG, waitMsg)
+            logDao.insert(LogEntry(type = "CHECK", message = waitMsg))
+            updateNotification(waitMsg)
+            broadcastStatus(waitMsg, -1f)
+            delay(startGate.cooldownMs)
+            if (!isRunning || serviceJob?.isActive != true) return
+        }
 
         // Initialer Login
         updateNotification("Anmelde...")

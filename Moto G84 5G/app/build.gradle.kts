@@ -6,7 +6,10 @@ plugins {
 
 android {
     namespace = "com.alditalk.panther"
-    compileSdk = 34
+    // MotoG84 5G laeuft auf Android 15. targetSdk 35 aktiviert die
+    // Edge-to-edge-Pflicht und die Android-15-Dienstregeln – beides wird
+    // im Manifest und in MainActivity auch wirklich umgesetzt.
+    compileSdk = 35
 
     defaultConfig {
         // Eigene applicationId, damit die Moto-G84-Variante parallel zur
@@ -14,17 +17,15 @@ android {
         // (kein Update-Konflikt).
         applicationId = "com.alditalk.panther.motog845g"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0-motog845g"
+        targetSdk = 35
+        versionCode = 2
+        versionName = "1.6-motog845g"
 
-        // Moto G84 5G: Snapdragon 695 (64-Bit ARM) – arm64-v8a + armeabi-v7a
-        // reichen; schlanke APK ohne x86-Emulator-ABIs.
-        // Gegenueber dem X11Pro (Helio G25) profitiert die App hier vom
-        // 12-GB-RAM und der deutlich schnelleren CPU – gleiche Filter,
-        // aber noch zuegigere Performance.
+        // Moto G84 5G: Snapdragon 695 (64-Bit ARM). Nur arm64-v8a – der
+        // armeabi-v7a-Split waere reine Ballast-APK, 32-Bit-Laeufer gibt es
+        // beim G84 5G nicht.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
 
         // ResConfigs: nur deutsch + englisch, spart Resource-Matching zur Laufzeit

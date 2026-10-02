@@ -121,6 +121,48 @@ public sealed class CoreTests
         Assert.False(r.Allowed);
     }
 
+    // ── Cooldown nach frischer Uebernahme (verhindert zu enge Abfragen) ────
+
+    [Fact]
+    public void Lock_NoCooldown_AfterRenewal_IsAllowedImmediately()
+    {
+        // NotBefore = 0 ist der Normalfall beim regulaeren Verlaengern.
+        var state = new LockState("windows", "windows-pc1", 1000, 999_000, 1000, 500_000, 0);
+        var r = LockRules.Decide(state, "windows-pc1", "windows", 500_000);
+        Assert.True(r.Allowed);
+        Assert.Equal(0, r.CooldownMs);
+    }
+
+    [Fact]
+    public void Lock_FreshTakeover_ReportsCooldown()
+    {
+        // Frisch uebernommen: Freigabe gehoert uns, aber es ist noch Sperrzeit.
+        var state = new LockState("windows", "windows-pc1", 1000, 999_000, 1000, 500_000, 620_000);
+        var r = LockRules.Decide(state, "windows-pc1", "windows", 500_000);
+        Assert.True(r.Allowed);
+        Assert.Equal(120_000, r.CooldownMs);
+    }
+
+    [Fact]
+    public void Lock_CooldownRemaining_IsZeroOnceElapsed()
+    {
+        var state = new LockState("windows", "windows-pc1", 1000, 999_000, 1000, 800_000, 620_000);
+        Assert.Equal(0, state.CooldownRemaining(800_000));
+        Assert.Equal(0, state.CooldownRemaining(999_999));
+    }
+
+    [Fact]
+    public void Lock_CooldownDoesNotBlockOtherDevice()
+    {
+        // Ein fremdes Geraet bleibt auch waehrend der Sperrzeit in Bereitschaft –
+        // die Cooldown gehoert nur dem neuen Inhaber.
+        var state = new LockState("windows", "windows-pc1", 1000, 999_000, 1000, 500_000, 620_000);
+        var r = LockRules.Decide(state, "motog84-abc", "motog84", 500_000);
+        Assert.False(r.Allowed);
+        Assert.Equal(GateStatus.NotOwner, r.Status);
+        Assert.Equal(0, r.CooldownMs);
+    }
+
     [Fact]
     public void LockStore_NormalizeUrl_TrimsAndValidates()
     {

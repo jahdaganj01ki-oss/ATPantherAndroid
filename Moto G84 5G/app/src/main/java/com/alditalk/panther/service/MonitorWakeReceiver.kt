@@ -20,8 +20,31 @@ import android.util.Log
 class MonitorWakeReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        Log.d(TAG, "onReceive: action=${intent?.action}")
-        when (intent?.action) {
+        val action = intent?.action
+        Log.d(TAG, "onReceive: action=$action")
+        val isBoot = action == Intent.ACTION_BOOT_COMPLETED ||
+            action == "android.intent.action.QUICKBOOT_POWERON"
+
+        if (isBoot && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // Android 15 (API 35) verbietet ausdruecklich, aus einem
+            // BOOT_COMPLETED-Broadcast einen Foreground-Service zu starten –
+            // das gilt fuer dataSync UND specialUse. Ein solcher Start wuerde
+            // mit ForegroundServiceStartNotAllowedException scheitern.
+            //
+            // Stattdessen: den AlarmManager-Fallback scharf stellen. Der erste
+            // Alarm weckt den Dienst dann im regulaeren Betrieb und ist von
+            // der Boot-Einschraenkung nicht betroffen. Voraussetzung dafuer
+            // ist die Batterie-Whitelist (siehe BatteryOptimizationOff).
+            Log.i(
+                TAG,
+                "Boot erkannt: kein FGS-Start aus BOOT_COMPLETED (Android 15). " +
+                    "Stattdessen wird der Fallback-Alarm scharf gestellt."
+            )
+            MonitorService.scheduleFallbackAfterBoot(context)
+            return
+        }
+
+        when (action) {
             ACTION_RESTART_MONITOR,
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON" -> restartMonitor(context, intent)

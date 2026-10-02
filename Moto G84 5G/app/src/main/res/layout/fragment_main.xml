@@ -1,15 +1,100 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- MotoG84 v1.4 Haupt-Seite (ViewPager Seite 0): stark verdichtet, garantiert
-  ohne Scroll auf 5,45" 720x1440 (~360x640 dp nutzbar). Budget <= ~600dp:
-  Titel 18sp, Cards Padding 8dp, Unterstrich-Felder statt OutlinedBox,
-  Buttons 36dp/12sp. -->
+<!-- MotoG84 v1.6: Die EINE Seite – Freigabe (oben), Login-Daten, Monitor,
+     Verlauf und Wartung untereinander in einem ScrollView.
+     Freigabe steht bewusst oben: sie beantwortet sofort die Frage
+     "fragt gerade ich ab oder die andere Variante?". -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="6dp"
     android:background="@color/bg_black">
+
+    <!-- ── Monitor-Freigabe (v1.6 neu: direkt sichtbar, mit Umschalt-Buttons) ── -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="1dp"
+        app:cardBackgroundColor="@color/card_bg">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Monitor-Freigabe"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="2dp" />
+
+            <!-- Statuszeile: zeigt an, welche Variante aktiv ist. -->
+            <TextView
+                android:id="@+id/tvLockStatusInline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Freigabe: unbekannt"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLockClaimInline"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:layout_marginEnd="4dp"
+                    android:text="@string/lock_claim_here"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    app:backgroundTint="@color/button_filled_gray"
+                    app:cornerRadius="18dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLockReleaseInline"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:minHeight="40dp"
+                    android:text="@string/lock_release"
+                    android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:singleLine="true" />
+            </LinearLayout>
+
+            <!-- Weitere Einstellungen (URL/Token) bleiben im Dialog. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLockSettings"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="36dp"
+                android:layout_marginTop="2dp"
+                android:text="@string/lock_settings_open"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:singleLine="true" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <TextView
         android:layout_width="match_parent"
@@ -230,25 +315,11 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnLock"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:minHeight="40dp"
-                    android:text="@string/lock_title"
-                    android:textSize="12sp"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:singleLine="true" />
-
-                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnBatteryOpt"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
                     android:minHeight="40dp"
                     android:text="Akku-Schutz"
                     android:contentDescription="Batterie-Optimierung ignorieren"
@@ -258,6 +329,76 @@
                     android:singleLine="true" />
 
             </LinearLayout>
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- ── Verlauf (v1.6: von der zweiten Seite hierher gezogen) ────────────── -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="1dp"
+        app:cardBackgroundColor="@color/card_bg">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Verlauf"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:layout_marginBottom="4dp" />
+
+            <!-- FESTE Hoehe, nicht 0dp/weight: im ScrollView wuerde der
+                 RecyclerView sonst alle 200 Zeilen messen (kein Recycling)
+                 und die UI einfrieren. -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvLog"
+                android:layout_width="match_parent"
+                android:layout_height="260dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Wartung"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="2dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnClearCache"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="36dp"
+                android:text="Cache leeren"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:singleLine="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnExportLog"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:minHeight="36dp"
+                android:text="Log exportieren"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:singleLine="true" />
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

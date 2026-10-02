@@ -1,57 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  MotoG84 v1.5: Activity-Host mit Seiten-Umschalter + ViewPager2.
-  Oben zwei kompakte Buttons mit Punkt-Indikator (● aktiv / ○ inaktiv);
-  darunter Seite 0 = Haupt, Seite 1 = Verlauf. Wisch + Tipp wechseln.
+  MotoG84 v1.6: EINE Seite fuer alles (kein ViewPager2, keine Tabs mehr).
+  Der komplette Inhalt - Freigabe, Login, Monitor und Verlauf - steht in einem
+  ScrollView untereinander. Schon beim Oeffnen sichtbar ist die wichtigste
+  Info: welche Variante gerade das Portal abfragt.
+
+  Der Verlauf sitzt als RecyclerView mit FESTER Hoehe darin (kein 0dp/weight):
+  eine Liste mit unbegrenzter Hoehe in einem ScrollView misst alle Zeilen bei
+  jedem Layout-Durchlauf, das Recycling faellt aus und die 120-Hz-pOLED des
+  Moto G84 ruckelt bzw. friert ein. Mit fester Hoehe scrollt die Liste intern.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/bg_black">
 
-    <LinearLayout
+    <ScrollView
+        android:id="@+id/scrollRoot"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="6dp"
-        android:paddingBottom="4dp">
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTabMain"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:minHeight="32dp"
-            android:text="● Haupt"
-            android:textSize="12sp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:singleLine="true" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTabLog"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:minHeight="32dp"
-            android:text="○ Verlauf"
-            android:textSize="12sp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:singleLine="true" />
-    </LinearLayout>
-
-    <androidx.viewpager2.widget.ViewPager2
-        android:id="@+id/viewPager"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
-
-</LinearLayout>
+        <FrameLayout
+            android:id="@+id/containerMain"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </ScrollView>
+</FrameLayout>
 

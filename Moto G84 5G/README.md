@@ -2,6 +2,25 @@
 
 Eigenstaendiges Gradle-Projekt fuer das **Motorola Moto G84 5G** (Qualcomm Snapdragon 695 5G, 6/8/12 GB RAM, 128/256 GB, 5000 mAh, Android 13 – upgradable auf Android 15, 6,5" 1080x2400 pOLED 120 Hz).
 
+> **Android 15 (targetSdk 35)** – zwei Stolperfallen sind ausdruecklich
+> entschaerft:
+> 1. **`specialUse` statt `dataSync`**: `dataSync`-Dienste werden auf Android 15
+>    nach **6 Stunden je 24 h** hart beendet (`ForegroundServiceTimeout`) – ein
+>    24/7-Monitor waere damit nach 6 Stunden tot. `specialUse` ist von dieser
+>    Grenze ausgenommen.
+> 2. **Kein Dienststart aus `BOOT_COMPLETED`**: Android 15 verbietet das fuer
+>    jeden FGS-Typ. `MonitorWakeReceiver` schaltet stattdessen nur noch den
+>    AlarmManager-Fallback scharf; der erste Alarm startet den Dienst 60 s
+>    nach dem Boot regulaer.
+>
+> Ausserdem: Edge-to-edge-Insets (ab targetSdk 35 Pflicht) und `arm64-v8a` ohne
+> den nutzlosen `armeabi-v7a`-Split.
+>
+> **Eine Seite statt ViewPager (v1.6)**: Freigabe, Login, Monitor und Verlauf
+> stehen untereinander in einem ScrollView. Der Verlauf-RecyclerView hat eine
+> **feste Hoehe von 260 dp** – eine Liste mit unbegrenzter Hoehe im ScrollView
+> verliert das Recycling und friert die 120-Hz-pOLED ein.
+
 Basierend auf der **Ulefone Power Armor X11Pro**-Variante (Freeze-Fixes, Login-Pause, monochromes Design, ViewPager-UI). Die Moto-G84-Variante nutzt das gleiche
 Production-Ready-Build mit folgenden gerätespezifischen Optimierungen:
 

@@ -23,12 +23,19 @@ public enum GateStatus
 }
 
 /// <summary>Ergebnis einer Freigabe-Abfrage - <see cref="GateResult.Allowed"/> entscheidet ueber den Portal-Kontakt.</summary>
-public sealed record GateResult(bool Allowed, GateStatus Status, string? Owner, string Detail);
+public sealed record GateResult(bool Allowed, GateStatus Status, string? Owner, string Detail, long CooldownMs = 0);
 
 /// <summary>Stand der Lease, wie der Worker ihn meldet.</summary>
-public sealed record LockState(string? Owner, string? DeviceId, long AcquiredAt, long ExpiresAt, long UpdatedAt, long Now)
+public sealed record LockState(string? Owner, string? DeviceId, long AcquiredAt, long ExpiresAt, long UpdatedAt, long Now, long NotBefore = 0)
 {
     public static readonly LockState Empty = new(null, null, 0, 0, 0, 0);
+
+    /// <summary>
+    /// Wartezeit nach einer frischen Uebernahme in Millisekunden (0 = keine).
+    /// Der Worker setzt sie, damit die neue Variante nicht sofort loslegt,
+    /// waehrend das alte Geraet noch mitten im Portal-Durchlauf steht.
+    /// </summary>
+    public long CooldownRemaining(long now) => NotBefore > now ? NotBefore - now : 0;
 }
 
 /// <summary>
@@ -41,10 +48,16 @@ public static class LockRules
     public static GateResult Decide(LockState state, string deviceId, string variantId, long now, string? prefix = null)
     {
         GateResult result;
+        long cooldownMs = 0;
 
         if (state.DeviceId == deviceId && state.ExpiresAt > now)
         {
-            result = new GateResult(true, GateStatus.Allowed, variantId, $"Freigabe aktiv: {variantId}");
+            // Nach einer frischen Uebernahme wartet der neue Inhaber kurz, damit
+            // seine erste Portal-Abfrage nicht direkt hinter der des alten
+            // Geraets liegt. Verlaengerungen haben NotBefore = 0.
+            cooldownMs = state.CooldownRemaining(now);
+            result = new GateResult(true, GateStatus.Allowed, variantId,
+                $"Freigabe aktiv: {variantId}", cooldownMs);
         }
         else if (string.IsNullOrEmpty(state.Owner))
         {
@@ -174,6 +187,7 @@ public sealed class MonitorGate
                 Owner = state.Owner,
                 DeviceId = state.DeviceId,
                 ExpiresAt = state.ExpiresAt,
+                NotBefore = state.NotBefore,
                 At = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             });
             return new GateResult(false, GateStatus.Free, state.Owner, "Freigabe abgegeben");
@@ -207,6 +221,7 @@ public sealed class MonitorGate
                 Owner = state.Owner,
                 DeviceId = state.DeviceId,
                 ExpiresAt = state.ExpiresAt,
+                NotBefore = state.NotBefore,
                 At = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             });
 
@@ -256,7 +271,8 @@ public sealed class MonitorGate
                 Num(stateEl, "acquiredAt"),
                 Num(stateEl, "expiresAt"),
                 Num(stateEl, "updatedAt"),
-                Num(stateEl, "now"));
+                Num(stateEl, "now"),
+                Num(stateEl, "notBefore"));
         }
         catch (JsonException ex)
         {
@@ -271,7 +287,7 @@ public sealed class MonitorGate
     private static long Num(JsonElement el, string name) =>
         el.TryGetProperty(name, out var v) && v.TryGetInt64(out var n) ? n : 0;
 
-    private static LockState ToState(CachedLock c) => new(c.Owner, c.DeviceId, 0, c.ExpiresAt, 0, 0);
+    private static LockState ToState(CachedLock c) => new(c.Owner, c.DeviceId, 0, c.ExpiresAt, 0, 0, c.NotBefore);
 
     private static GateResult NotConfigured() => new(false, GateStatus.NotConfigured, null,
         "Keine Freigabe-URL eingetragen - unten bei 'Freigabe' eintragen");

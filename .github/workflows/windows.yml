@@ -8,11 +8,13 @@ on:
     branches: [ main, master ]
     paths:
       - "Windows/**"
+      - "worker/**"
       - ".github/workflows/windows.yml"
   pull_request:
     branches: [ main, master ]
     paths:
       - "Windows/**"
+      - "worker/**"
       - ".github/workflows/windows.yml"
   workflow_dispatch:
 
@@ -42,8 +44,20 @@ jobs:
       - name: Test
         run: dotnet test ATPanther.sln -c Release --no-build
 
+      # EnableCompressionInSingleFile: die self-contained EXE ist ohne
+      # Kompression ~150 MB gross; damit wird sie auf ~60 MB geschrumpft.
+      # Wichtig fuer die Veroeffentlichung als GitHub-Actions-Artifact.
       - name: Publish win-x64 (self-contained single-file)
-        run: dotnet publish src/ATPanther/ATPanther.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/win-x64
+        run: dotnet publish src/ATPanther/ATPanther.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64
+
+      - name: Artifact-Groesse pruefen
+        run: |
+          $exe = Get-ChildItem publish/win-x64/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "Keine EXE im Publish-Ordner" }
+          Write-Host ("   {0}: {1:N1} MB" -f $exe.Name, ($exe.Length / 1MB))
+          if ($exe.Length -lt 30MB) {
+            throw "EXE ist verdächtig klein ($($exe.Length) Bytes) – Single-File-Publish fehlgeschlagen?"
+          }
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4

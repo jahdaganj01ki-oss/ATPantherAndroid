@@ -22,6 +22,12 @@ local.properties
 /Redmi Note 9 Pro/app/build
 /Redmi Note 9 Pro/release.keystore
 
+# Moto G84 5G device variant build output (Eigenes Gradle-Projekt im Repo)
+/Moto G84 5G/.gradle
+/Moto G84 5G/app/build
+/Moto G84 5G/release.keystore
+/Moto G84 5G/local.properties
+
 # Windows-Port (.NET) build output
 [Ww]indows/**/bin/
 [Ww]indows/**/obj/

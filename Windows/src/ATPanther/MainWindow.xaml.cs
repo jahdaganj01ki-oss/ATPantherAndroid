@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     private readonly MonitorService _monitor;
     private bool _pwVisible;
     private bool _uiReady;
+    private System.Windows.Threading.DispatcherTimer? _lockTimer;
 
     public MainWindow()
     {
@@ -98,6 +99,18 @@ public partial class MainWindow : Window
             LoadSettings();
             RefreshLog();
             _uiReady = true;
+
+            // Freigabe-Anzeige regelmaessig auffrischen, damit sofort sichtbar
+            // ist, welche Variante aktiv ist - auch wenn auf dem anderen
+            // Geraet umgeschaltet wurde. Alle 60 s ist das nur ein Aufruf
+            // in ca. 0,4 % des kostenlosen Kontingents.
+            _lockTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(60)
+            };
+            _lockTimer.Tick += (_, _) => RefreshLockStatusAsync();
+            _lockTimer.Start();
+
             App.UpdateTrayTooltip("Gestoppt");
             FileLogger.Info("MainWindow UI ready.");
         }
@@ -226,15 +239,35 @@ public partial class MainWindow : Window
         _monitor.Start(phone, pw, threshold, interval);
         BtnToggle.Content = "Monitor stoppen";
         TvStatus.Text = "Starte...";
-        Tabs.SelectedIndex = 1;
         FileLogger.Info($"Monitor started: phone={phone}, threshold={threshold}MB, interval={interval}s");
     }
 
-    private void OnBackClicked(object sender, RoutedEventArgs e) => Tabs.SelectedIndex = 0;
-
     // ── Monitor-Freigabe (nur eine Variante darf das Portal abfragen) ──────
 
-    private void ShowLockStatus(GateResult r)
+    /// <summary>
+/// Holt den aktuellen Freigabe-Stand vom Worker und schreibt ihn in die
+/// Statuszeile. Ohne eingetragene URL passiert nichts.
+/// </summary>
+private async void RefreshLockStatusAsync()
+{
+    try
+    {
+        if (!_gate.IsConfigured())
+        {
+            ShowLockStatus(_gate.CachedStatus());
+            return;
+        }
+        // autoClaim: false -> die Anzeige darf niemals ungefragt eine Lease
+        // uebernehmen. Nur "Uebernehmen" darf das.
+        ShowLockStatus(await _gate.EvaluateAsync(autoClaim: false));
+    }
+    catch (Exception ex)
+    {
+        FileLogger.Warning($"Freigabe-Status konnte nicht erneuert werden: {ex.Message}");
+    }
+}
+
+private void ShowLockStatus(GateResult r)
     {
         var headline = r.Status switch
         {
@@ -245,7 +278,23 @@ public partial class MainWindow : Window
             GateStatus.Unreachable => "⛔ Freigabe-Server nicht erreichbar",
             _ => "⚠ Freigabe unsicher",
         };
-        TvLock.Text = headline + Environment.NewLine + r.Detail;
+        var text = headline + Environment.NewLine + r.Detail;
+        // Nach einer frischen Uebernahme sichtbar machen, dass noch gewartet wird.
+        if (r.Allowed && r.CooldownMs > 0)
+        {
+            text += Environment.NewLine +
+                $"⏳ Erste Abfrage in {Math.Ceiling(r.CooldownMs / 1000.0):0} s " +
+                "(sofortiges Nachfragen wird vermieden)";
+        }
+        TvLock.Text = text;
+        // Farbliche Hervorhebung: gruen = wir fragen ab, gelb = jemand anderes.
+        TvLock.Foreground = r.Status switch
+        {
+            GateStatus.Allowed => System.Windows.Media.Brushes.LightGreen,
+            GateStatus.NotOwner => System.Windows.Media.Brushes.Orange,
+            GateStatus.Free => System.Windows.Media.Brushes.Gainsboro,
+            _ => System.Windows.Media.Brushes.IndianRed,
+        };
     }
 
     private async void OnLockSaveClicked(object sender, RoutedEventArgs e)
@@ -449,6 +498,7 @@ public partial class MainWindow : Window
         // vor der Zuweisung geworfen hat (z.B. XAML-Parse-Fehler) – dann gab es
         // eine NullReferenceException beim Schliessen obendrauf.
         try { _monitor?.Stop(); } catch { }
+        try { _lockTimer?.Stop(); } catch { }
         try { _db?.Dispose(); } catch { }
         base.OnClosed(e);
     }

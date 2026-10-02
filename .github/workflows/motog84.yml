@@ -13,11 +13,13 @@ on:
     branches: [ main, master ]
     paths:
       - "Moto G84 5G/**"
+      - "worker/**"
       - ".github/workflows/motog84.yml"
   pull_request:
     branches: [ main, master ]
     paths:
       - "Moto G84 5G/**"
+      - "worker/**"
       - ".github/workflows/motog84.yml"
   workflow_dispatch:
 

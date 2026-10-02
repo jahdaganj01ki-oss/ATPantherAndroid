@@ -41,6 +41,12 @@ data class GateResult(
     val status: GateStatus,
     val owner: String?,
     val detail: String,
+    /**
+     * Wartezeit nach einer frischen Uebernahme in Millisekunden (0 = keine).
+     * Der Worker setzt sie, damit die neue Variante nicht sofort loslegt,
+     * waehrend das alte Geraet noch mitten im Portal-Durchlauf steht.
+     */
+    val cooldownMs: Long = 0L,
 )
 
 /**
@@ -153,6 +159,8 @@ class MonitorGate(context: Context) {
         val deviceId: String?,
         val expiresAt: Long,
         val at: Long,
+        /** Sperrzeit nach frischer Uebernahme (ms seit Epoch, 0 = keine). */
+        val notBefore: Long = 0L,
     )
 
     // ── Cache ──────────────────────────────────────────────────────────────
@@ -166,6 +174,7 @@ class MonitorGate(context: Context) {
                 deviceId = if (o.isNull("deviceId")) null else o.optString("deviceId").ifBlank { null },
                 expiresAt = o.optLong("expiresAt", 0L),
                 at = prefs.getLong(PREF_CACHED_AT, 0L),
+                notBefore = o.optLong("notBefore", 0L),
             )
         } catch (e: Exception) {
             Log.w(TAG, "Freigabe-Cache unlesbar, wird ignoriert", e)
@@ -178,6 +187,7 @@ class MonitorGate(context: Context) {
             .put("owner", state.owner ?: JSONObject.NULL)
             .put("deviceId", state.deviceId ?: JSONObject.NULL)
             .put("expiresAt", state.expiresAt)
+            .put("notBefore", state.notBefore)
         prefs.edit()
             .putString(PREF_CACHED, json.toString())
             .putLong(PREF_CACHED_AT, state.at)
@@ -193,7 +203,17 @@ class MonitorGate(context: Context) {
     private fun decide(state: CachedState, now: Long): GateResult {
         val mine = state.deviceId == deviceId && state.expiresAt > now
         return when {
-            mine -> GateResult(true, GateStatus.ALLOWED, variantId, "Freigabe aktiv: $variantId")
+            mine -> {
+                // Nach einer frischen Uebernahme kurz warten, damit die erste
+                // Portal-Abfrage nicht direkt hinter der des alten Geraets liegt.
+                val wait = if (state.notBefore > now) state.notBefore - now else 0L
+                val detail = if (wait > 0) {
+                    "Freigabe aktiv: $variantId – erste Abfrage in ${ago(wait)}"
+                } else {
+                    "Freigabe aktiv: $variantId"
+                }
+                GateResult(true, GateStatus.ALLOWED, variantId, detail, wait)
+            }
             state.owner == null ->
                 GateResult(false, GateStatus.FREE, null, "Freigabe ist frei – Übernehmen tippen")
             state.expiresAt <= now ->
@@ -310,6 +330,7 @@ class MonitorGate(context: Context) {
             deviceId = if (s.isNull("deviceId")) null else s.optString("deviceId").ifBlank { null },
             expiresAt = s.optLong("expiresAt", 0L),
             at = System.currentTimeMillis(),
+            notBefore = s.optLong("notBefore", 0L),
         )
     }
 

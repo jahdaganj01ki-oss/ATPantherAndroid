@@ -129,7 +129,51 @@ console.log("\n1) Leerer Zustand");
   check("Owner wird als leer gemeldet", seen.data.state.owner, null);
   check("nicht freigegeben ohne Uebernahme", seen.data.granted, false);
 
-  console.log("\n9) Eingabevalidierung");
+  console.log("\n9) Cooldown nach frischer Uebernahme (verhindert zu enge Abfragen)");
+  db.exec("DELETE FROM monitor_lock");
+  const coolClaim = await post(handleSync, { ...A, claimIfFree: true });
+  check("A hat die Freigabe", coolClaim.data.granted, true);
+  check(
+    "Sperrzeit gesetzt",
+    coolClaim.data.state.notBefore > Date.now(),
+    true
+  );
+  // Uebernehmen verdraengt -> neuer Inhaber bekommt ebenfalls eine Sperrzeit
+  const coolSteal = await post(handleSync, { ...B, steal: true });
+  check("B hat uebernommen", coolSteal.data.granted, true);
+  check(
+    "B bekommt eigene Sperrzeit",
+    coolSteal.data.state.notBefore > Date.now(),
+    true
+  );
+  // Abgelaufene Cooldown wird als 0 gemeldet (kein Warten mehr noetig)
+  db.prepare("UPDATE monitor_lock SET not_before = ? WHERE id = 1").run(Date.now() - 1);
+  const expiredCool = await post(handleSync, { ...B });
+  check(
+    "verstrichene Sperrzeit -> 0",
+    expiredCool.data.state.notBefore,
+    0
+  );
+  // Verlaengerung raeumt die Sperrzeit ab
+  db.prepare("UPDATE monitor_lock SET not_before = ? WHERE id = 1").run(Date.now() + 600_000);
+  const renewClears = await post(handleSync, { ...B });
+  check("Verlaengern raeumt Cooldown ab", renewClears.data.state.notBefore, 0);
+
+  console.log("\n10) Cooldown laesst sich abschalten (cooldownMs = 0)");
+  db.exec("DELETE FROM monitor_lock");
+  const noCool = await post(handleSync, { ...C, claimIfFree: true, cooldownMs: 0 });
+  check("keine Sperrzeit bei 0", noCool.data.state.notBefore, 0);
+  const coolCustom = await post(handleSync, { ...A, steal: true, cooldownMs: 60_000 });
+  check(
+    "eigene Cooldown-Dauer wird uebernommen",
+    coolCustom.data.state.notBefore > Date.now() &&
+      coolCustom.data.state.notBefore <= Date.now() + 60_000,
+    true
+  );
+
+  console.log("\n11) Eingabevalidierung");
+  // Freigabe leeren, damit der folgende Aufruf wirklich uebernehmen kann
+  db.exec("DELETE FROM monitor_lock");
   const noDevice = await post(handleSync, { variant: "windows" });
   check("fehlende deviceId -> 400", noDevice.status, 400);
   const weird = await post(handleSync, { deviceId: "  win  dows  ", variant: "windows", claimIfFree: true });

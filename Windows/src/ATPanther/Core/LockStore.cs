@@ -22,6 +22,7 @@ public sealed class CachedLock
     public string? Owner { get; set; }
     public string? DeviceId { get; set; }
     public long ExpiresAt { get; set; }
+    public long NotBefore { get; set; }
     public long At { get; set; }
 }
 

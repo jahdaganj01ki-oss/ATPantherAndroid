@@ -19,6 +19,9 @@
     <string name="lock_close">Schließen</string>
     <string name="lock_release">Freigeben</string>
     <string name="lock_save">Freigabe speichern</string>
+    <!-- v1.6: direkte Umschalt-Buttons auf der Hauptseite -->
+    <string name="lock_claim_here">Hier übernehmen</string>
+    <string name="lock_settings_open">Freigabe-Einstellungen (URL/Token)</string>
     <string name="lock_fail_open">Bei Server-Ausfall weiterlaufen (nicht empfohlen)</string>
     <string name="lock_claim_confirm">Übernehmen?\n\nDie andere Variante wird dadurch beim nächsten Check selbstständig in den Bereitschaftsmodus geschaltet und fragt das Portal nicht mehr ab.</string>
 </resources>

@@ -41,6 +41,23 @@
 export const DEFAULT_TTL_SECONDS = 900; // 15 min Lease
 export const MIN_TTL_SECONDS = 120;
 export const MAX_TTL_SECONDS = 3600;
+
+/**
+ * Sperrzeit nach einer frischen Uebernahme (Standard 120 s).
+ *
+ * Zweck: Nach dem Umschalten soll die neue Variante nicht sofort loslegen.
+ * Das alte Geraet kann noch mitten in einem Portal-Durchlauf stehen (Login,
+ * PoW, Datenabfrage) – ein sofortiger erster Poll der neuen Variante wuerde
+ * die Abfragen zu dicht aufeinander legen. Genau das ist der Weg, auf dem das
+ * ALDI-Talk-Konto in eine Sperre rutscht. Deshalb wartet der neue Inhaber
+ * `cooldownMs` Millisekunden, BEVOR er das Portal zum ersten Mal anfasst.
+ *
+ * Verlaengerungen sind nicht betroffen: ab dem zweiten Poll greift wieder das
+ * regulaere Intervall. Ueber `cooldownMs` im Body anpassbar (0 = aus).
+ */
+export const DEFAULT_COOLDOWN_MS = 120_000;
+export const MAX_COOLDOWN_MS = 900_000;
+
 const MAX_FIELD_LENGTH = 64;
 
 /** Steuerzeichen ausschneiden (Werte landen in der DB und in Antworten). */
@@ -51,12 +68,22 @@ export const RENEW_SQL =
   "UPDATE monitor_lock SET expires_at = ?, updated_at = ? " +
   "WHERE id = 1 AND device_id = ?";
 
+/**
+ * Cooldown zuruecksetzen: nach erfolgreicher Verlaengerung ist die Sperrzeit
+ * erledigt, der Inhaber darf ab jetzt regulaer pollen. Gehoert die Zeile nicht
+ * mehr uns, aendert das UPDATE nichts (Bedingung im WHERE).
+ */
+export const CLEAR_COOLDOWN_SQL =
+  "UPDATE monitor_lock SET not_before = 0 " +
+  "WHERE id = 1 AND device_id = ? AND not_before > 0";
+
 /** Freigeben: nur der Inhaber darf loeschen. */
 export const RELEASE_SQL = "DELETE FROM monitor_lock WHERE id = 1 AND device_id = ?";
 
 /** Zeile lesen. */
 export const SELECT_SQL =
-  "SELECT owner, device_id, acquired_at, expires_at, updated_at FROM monitor_lock WHERE id = 1";
+  "SELECT owner, device_id, acquired_at, expires_at, updated_at, not_before " +
+  "FROM monitor_lock WHERE id = 1";
 
 /**
  * Bedingtes UPSERT = atomare Lease-Uebernahme.
@@ -71,8 +98,8 @@ export const SELECT_SQL =
  * nur ein echter Geraetewechsel setzt die Startzeit neu.
  */
 export const UPSERT_SQL = `
-INSERT INTO monitor_lock (id, owner, device_id, acquired_at, expires_at, updated_at)
-VALUES (1, ?, ?, ?, ?, ?)
+INSERT INTO monitor_lock (id, owner, device_id, acquired_at, expires_at, updated_at, not_before)
+VALUES (1, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   owner       = excluded.owner,
   device_id   = excluded.device_id,
@@ -83,7 +110,15 @@ ON CONFLICT(id) DO UPDATE SET
                   ELSE excluded.acquired_at
                 END,
   expires_at  = excluded.expires_at,
-  updated_at  = excluded.updated_at
+  updated_at  = excluded.updated_at,
+  not_before  = CASE
+                  -- gleiches Geraet mit lebender Lease: Cooldown unveraendert lassen
+                  WHEN monitor_lock.device_id = excluded.device_id
+                       AND monitor_lock.expires_at > ?
+                  THEN monitor_lock.not_before
+                  -- echter Geraetewechsel oder abgelaufene Lease: Sperrzeit setzen
+                  ELSE excluded.not_before
+                END
 WHERE ? = 1
    OR monitor_lock.expires_at IS NULL
    OR monitor_lock.expires_at <= ?
@@ -117,6 +152,16 @@ export function clampTtl(value) {
 }
 
 /**
+ * Cooldown normalisieren. `cooldownMs` im Body, sonst der Standard.
+ * Negative und nicht-endliche Werte werden zu 0 (Sperrzeit aus).
+ */
+export function clampCooldown(value) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(MAX_COOLDOWN_MS, Math.round(n));
+}
+
+/**
  * Abgelaufene Leases werden nach aussen hin als "frei" gemeldet – so sieht
  * ein Client niemals einen Besitzer, der die Freigabe faktisch nicht mehr hat.
  */
@@ -124,12 +169,16 @@ export function toState(row, now) {
   const r = row || {};
   const expiresAt = r.expires_at ?? 0;
   const alive = !!r.owner && expiresAt > now;
+  // Eine Sperrzeit, die schon verstrichen ist, wird als 0 gemeldet – der
+  // Client soll dann keine Wartezeit mehr sehen.
+  const rawNotBefore = r.not_before ?? 0;
   return {
     owner: alive ? r.owner : null,
     deviceId: alive ? r.device_id : null,
     acquiredAt: alive ? r.acquired_at ?? 0 : 0,
     expiresAt: alive ? expiresAt : 0,
     updatedAt: r.updated_at ?? 0,
+    notBefore: alive && rawNotBefore > now ? rawNotBefore : 0,
     now,
   };
 }
@@ -171,6 +220,9 @@ export async function handleSync(env, body) {
   const ttlSeconds = clampTtl(body.ttlSeconds);
   const claimIfFree = body.claimIfFree === true;
   const steal = body.steal === true;
+  const cooldownMs = body.cooldownMs === undefined
+    ? DEFAULT_COOLDOWN_MS
+    : clampCooldown(body.cooldownMs);
 
   if (!deviceId) {
     return json({ ok: false, error: "deviceId fehlt" }, 400);
@@ -178,6 +230,9 @@ export async function handleSync(env, body) {
 
   const now = Date.now();
   const expiresAt = now + ttlSeconds * 1000;
+  // Cooldown gilt nur fuer einen ECHTEN Wechsel des Inhabers. Beim
+  // regulaeren Verlängern uebernimmt der bestehende not_before-Wert.
+  const notBefore = now + cooldownMs;
   let renewed = false;
 
   if (!steal) {
@@ -188,12 +243,17 @@ export async function handleSync(env, body) {
     renewed = (result.meta && result.meta.changes ? result.meta.changes : 0) > 0;
   }
 
-  if (!renewed && (claimIfFree || steal)) {
+  if (renewed) {
+    // Cooldown ist mit der Verlaengerung ueberholt: ab jetzt regulaer pollen.
+    await env.DB.prepare(CLEAR_COOLDOWN_SQL).bind(deviceId).run();
+  } else if (claimIfFree || steal) {
     // (2) Uebernehmen – nur wenn frei/abgelaufen bzw. ausdruecklich erzwungen.
-    //     Reihenfolge der Platzhalter: owner, device, acquired, expires,
-    //     updated, now (acquired_at-Erhalt), steal, now (Ablaufvergleich).
+    //     Reihenfolge der Platzhalter:
+    //       owner, device, acquired, expires, updated, not_before (INSERT),
+    //       now (acquired_at-Erhalt), now (not_before-Erhalt),
+    //       steal, now (Ablaufvergleich)
     await env.DB.prepare(UPSERT_SQL)
-      .bind(variant, deviceId, now, expiresAt, now, now, steal ? 1 : 0, now)
+      .bind(variant, deviceId, now, expiresAt, now, notBefore, now, now, steal ? 1 : 0, now)
       .run();
   }
 

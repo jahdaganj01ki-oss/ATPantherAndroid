@@ -3,7 +3,17 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!--
+      MotoG84 v1.6 / Android 15: Der Monitor laeuft 24/7. Fuer targetSdk 35
+      gilt eine HARTE Grenze von 6 Stunden je 24 h fuer "dataSync"-Dienste
+      (ForegroundServiceTimeout). Danach wird der Dienst beendet - der
+      Datenwaechter waere also nach 6 h tot.
+      "specialUse" ist von dieser Grenze ausgenommen und ist genau fuer
+      Daueraufgaben wie diese gedacht: das Portal wird ueber Stunden im
+      Minutentakt abgefragt, das ist keine in sich abgeschlossene
+      Uebertragung, sondern ein Dauerzustand.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Warnsystem Guthaben: Netzwerkzustand & mobile Daten prüfen (WLAN-Guard) -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -51,7 +61,16 @@
         <service
             android:name=".service.MonitorService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <!--
+              Android 15 verlangt fuer specialUse eine Begruendung. Sie wird
+              bei der Play-Zustellung geprueft; fuer die private Nutzung
+              (sideloaded APK) ist sie nur eine Dokumentation.
+            -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Datenvolumen-Waechter: fragt das ALDI-Talk-Portal dauerhaft im Minutentakt ab und bucht bei Bedarf automatisch nach. Der Dienst muss durchgehend laufen, weil eine Ueberwachung des Guthabens nur sinnvoll ist, wenn sie durchlaeuft." />
+        </service>
 
         <!--
           WakeLock-Fallback-Empfaenger: AlarmManager kann via getBroadcast() den

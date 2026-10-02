@@ -10,17 +10,16 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.viewpager2.adapter.FragmentStateAdapter
-import androidx.viewpager2.widget.ViewPager2
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.monitor.GateResult
 import com.alditalk.panther.monitor.LockDialog
 import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.service.MonitorService
@@ -43,24 +42,15 @@ class MainActivity : AppCompatActivity() {
          * vollem Umfang) aber landet nicht mehr komplett im RecyclerView.
          */
         private const val LOG_UI_LIMIT = 200
-
-        /** ViewPager-Seiten: 0 = Haupt (Screenshot-Layout), 1 = Verlauf. */
-        const val PAGE_MAIN = 0
-        const val PAGE_LOG = 1
     }
 
     // Default-Werte (v1.5: Standard-Schwelle 950 MB)
     private val defaultThresholdMb = 950f
     private val defaultIntervalSec = 60
 
-    /** MotoG84 v1.3: geteilter Zustand mit beiden ViewPager-Fragmenten. */
+    /** MotoG84 v1.6: geteilter Zustand – MainFragment haelt die ganze Seite. */
     val uiState = MainUiState()
     val logState = LogUiState()
-
-    private lateinit var viewPager: ViewPager2
-
-    /** MotoG84 v1.3: Referenzen auf die beiden Pager-Fragmente (kein Tag-Lookup). */
-    private var mainFragment: MainFragment? = null
 
     private var isServiceRunning = false
 
@@ -117,29 +107,25 @@ class MainActivity : AppCompatActivity() {
             .isAppearanceLightStatusBars = false
         setContentView(R.layout.activity_main)
 
-        // MotoG84 v1.3: ViewPager mit 2 Seiten (Haupt + Verlauf).
-        viewPager = findViewById(R.id.viewPager)
-        viewPager.adapter = object : FragmentStateAdapter(this) {
-            override fun getItemCount(): Int = 2
-            override fun createFragment(position: Int): Fragment =
-                if (position == PAGE_LOG) LogFragment.newInstance()
-                else MainFragment.newInstance().also { mainFragment = it }
+        // MotoG84 v1.6: EINE Seite, kein ViewPager2. MainFragment wird direkt
+        // in den ScrollView-Container gehaengt und enthaelt Freigabe, Login,
+        // Monitor und Verlauf untereinander.
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.containerMain, MainFragment.newInstance())
+            .commit()
+
+        // Edge-to-edge (ab targetSdk 35 Pflicht): die Insets fuer Status- und
+        // Navigationsleiste als Padding auf den ScrollView legen, damit
+        // Inhalte nicht unter der Statusleiste verschwinden.
+        val scroll = findViewById<View>(R.id.scrollRoot)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+            val bars = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    or androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
         }
-        // MotoG84 v1.5: Seiten-Umschalter oben (● aktiv / ○ inaktiv).
-        val tabMain = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTabMain)
-        val tabLog = findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTabLog)
-        fun refreshTabs(position: Int) {
-            tabMain.text = if (position == PAGE_MAIN) "● Haupt" else "○ Haupt"
-            tabLog.text = if (position == PAGE_LOG) "● Verlauf" else "○ Verlauf"
-        }
-        tabMain.setOnClickListener { showMainPage() }
-        tabLog.setOnClickListener { showLogPage() }
-        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) {
-                refreshTabs(position)
-            }
-        })
-        refreshTabs(PAGE_MAIN)
 
         // Anforderung 1: Gespeicherte Login-Daten UND Einstellungen laden
         loadCredentials()
@@ -163,14 +149,66 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** MotoG84 v1.3: zur Haupt-Seite (Seite 0) wechseln. */
-    fun showMainPage() {
-        if (::viewPager.isInitialized) viewPager.setCurrentItem(PAGE_MAIN, true)
+    /** MotoG84 v1.6: aktueller Freigabe-Stand aus dem Cache – blockiert nie. */
+    fun cachedLockStatus(): GateResult = MonitorGate(this).cachedStatus()
+
+    /**
+     * v1.6: Freigabe direkt an dieses Handy holen ("Hier übernehmen").
+     * Die andere Variante geht beim naechsten Check selbst in Bereitschaft.
+     */
+    fun onLockClaimInline() {
+        val gate = MonitorGate(this)
+        if (!gate.isConfigured()) {
+            Toast.makeText(
+                this,
+                "Keine Freigabe-URL eingetragen.\n\nBitte auf " +
+                    "„Freigabe-Einstellungen“ tippen und die Worker-URL eintragen.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.lock_claim)
+            .setMessage(R.string.lock_claim_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                lifecycleScope.launch {
+                    val result = withContext(Dispatchers.IO) { gate.claim() }
+                    renderLock(result)
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (result.allowed) {
+                            "Freigabe übernommen – die andere Variante pausiert gleich."
+                        } else {
+                            "Übernommen fehlgeschlagen: ${result.detail}"
+                        },
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    /** MotoG84 v1.3: zur Verlauf-Seite (Seite 1) wechseln. */
-    fun showLogPage() {
-        if (::viewPager.isInitialized) viewPager.setCurrentItem(PAGE_LOG, true)
+    /** v1.6: eigene Freigabe abgeben, damit die andere Variante übernehmen kann. */
+    fun onLockReleaseInline() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                MonitorGate(this@MainActivity).release()
+            }
+            renderLock(result)
+            Toast.makeText(this@MainActivity, result.detail, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Holt ein Freigabe-Ergebnis in die Karte auf der Seite. */
+    fun renderLock(result: GateResult) {
+        val frag = supportFragmentManager.findFragmentById(R.id.containerMain) as? MainFragment
+        frag?.renderLock(result)
+    }
+
+    /** Frigabe-Dialog oeffnen (nur eine Variante darf das Portal abfragen). */
+    fun onLockClicked() {
+        LockDialog.show(this)
     }
 
     /** MotoG84 v1.3: Klick-Handler des MainFragments (Toggle Monitor). */
@@ -265,9 +303,10 @@ class MainActivity : AppCompatActivity() {
             prefs.getString("interval_sec", defaultIntervalSec.toString()).orEmpty()
     }
 
-    /** MotoG84 v1.3: aktuelle Texte aus dem MainFragment in uiState spiegeln. */
+    /** MotoG84 v1.6: aktuelle Texte aus dem MainFragment in uiState spiegeln. */
     private fun syncUiStateFromFragment() {
-        val frag = mainFragment ?: return
+        val frag = supportFragmentManager.findFragmentById(R.id.containerMain) as? MainFragment
+            ?: return
         val phoneView = frag.view?.findViewById<EditText>(R.id.etPhone)
         val passView = frag.view?.findViewById<EditText>(R.id.etPassword)
         val thrView = frag.view?.findViewById<EditText>(R.id.etThreshold)
@@ -407,11 +446,6 @@ class MainActivity : AppCompatActivity() {
 
     // ── Service control ──
 
-    /** Freigabe-Dialog oeffnen (nur eine Variante darf das Portal abfragen). */
-    fun onLockClicked() {
-        LockDialog.show(this)
-    }
-
     private fun startMonitor() {
         // Ohne Freigabe-URL startet der Monitor nicht: der Schutz gegen
         // parallele Abfragen mehrerer Varianten ist bewusst fail-closed.
@@ -467,9 +501,7 @@ class MainActivity : AppCompatActivity() {
         uiState.toggleStopMode.value = true
         uiState.statusText.value = "Starte..."
         uiState.statusColorRes.value = R.color.status_warn
-        // MotoG84 v1.3: Nach "Monitor starten" automatisch die Verlaufs-Seite
-        // oeffnen, damit der Nutzer direkt sieht, was passiert.
-        showLogPage()
+        // v1.6: Es gibt nur noch eine Seite – nichts umzuschalten.
     }
 
     private fun stopMonitor() {

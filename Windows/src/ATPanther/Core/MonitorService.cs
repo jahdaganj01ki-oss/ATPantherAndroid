@@ -84,6 +84,27 @@ public sealed class MonitorService
             return;
         }
 
+        // Nach einer FRISCHEN Uebernahme kurz warten, bevor das Portal zum
+        // ersten Mal angefasst wird. Das alte Geraet kann noch mitten in einem
+        // Durchlauf stehen; ein sofortiger erster Poll wuerde die Abfragen zu
+        // dicht aufeinander legen (Sperr-Risiko).
+        if (startGate.CooldownMs > 0)
+        {
+            var waitSec = startGate.CooldownMs / 1000;
+            var waitMsg = $"Freigabe uebernommen – warte {waitSec} s, bevor das Portal abgefragt wird";
+            FileLogger.Info($"Monitor: cooldown {waitSec}s");
+            Status(waitMsg);
+            Log("CHECK", 0, waitMsg);
+            try
+            {
+                await Task.Delay((int)Math.Min(startGate.CooldownMs, int.MaxValue), ct).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException)
+            {
+                return; // Nutzer hat den Monitor gestoppt
+            }
+        }
+
         Status("Verbinde...");
         var login = await auth.LoginAsync(phone, password, ct).ConfigureAwait(false);
         if (!login.Success)
