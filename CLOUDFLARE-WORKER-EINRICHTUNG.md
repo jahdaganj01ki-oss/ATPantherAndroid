@@ -563,6 +563,10 @@ Vergisst du das, antwortet der Worker mit `401 unauthorized`.
 | `⛔ Server nicht erreichbar` | URL im Browser öffnen — kommt `{"ok":true,…}`? |
 | `401 unauthorized` | `LOCK_TOKEN` gesetzt, aber nicht in der App eingetragen |
 | `HTTP 400` | Token leer oder D1-Berechtigung fehlt |
+| `binding DB of type d1 must have a valid 'database_id' specified [10021]` | `database_id` in `wrangler.toml` noch Platzhalter → `npx wrangler d1 list` und eintragen |
+| Antwort kommt flach (`owner` oben) statt `"state":{…}` | alter, handgeschriebener Worker ist live → `npx wrangler deploy` aus **diesem** Ordner |
+| `Unknown argument: 'deploy``' | Backticks wurden mitkopiert — `npx wrangler deploy` **ohne** Backticks |
+| Monitor startet nicht, Status sagt „nicht erreichbar" | fast immer ein Format-Mismatch wie in der Zeile darüber |
 
 ### Wenn D1 nicht verfügbar ist
 

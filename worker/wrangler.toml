@@ -2,14 +2,25 @@ name = "at-panther-lock"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# D1-Datenbank. Die database_id trägtst du nach `npx wrangler d1 create at-panther-lock`
-# ein (siehe README.md in diesem Ordner).
+# D1-Datenbank. Die database_id ist eingetragen (Stand 02.10.2026), gefunden
+# mit `npx wrangler d1 list`. Fuer ein NEUES Konto hier die eigene UUID
+# eintragen (`npx wrangler d1 create at-panther-lock`).
+#
+# Deployed am 02.10.2026: https://at-panther-lock.atp-lock.workers.dev
+#
+# WICHTIG: muss die database_id stimmen, sonst bricht `wrangler deploy` ab mit
+#   binding DB of type d1 must have a valid `database_id` specified [10021]
 [[d1_databases]]
 binding = "DB"
 database_name = "at-panther-lock"
-database_id = "HIER-DATABASE-ID-EINTRAGEN"
+database_id = "75d6cd0b-bc62-4843-9f92-9b70a669610b"
 
 # Optionaler Schutz gegen Fremdzugriffe. Wenn gesetzt, muss jeder Client
 # den Header "X-Lock-Token" mitsenden. Leer lassen = ohne Token (Inhalt der
 # Sperre ist harmlos: nur ein Variantenname + Zeitstempel).
-# wrangler.toml wrangler secret put LOCK_TOKEN
+# Secret anlegen:   npx wrangler secret put LOCK_TOKEN
+# Secret entfernen: npx wrangler secret delete LOCK_TOKEN
+#
+# ACHTUNG: Ist LOCK_TOKEN gesetzt, antwortet der Worker auf JEDEN Aufruf mit
+# 401. Dann muss in BEIDEN Apps (Windows + Moto) dasselbe Token im Feld
+# "Token" stehen, sonst bleibt der Monitor gesperrt (fail-closed).
