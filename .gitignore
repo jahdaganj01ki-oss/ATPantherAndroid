@@ -22,6 +22,12 @@ local.properties
 /Redmi Note 9 Pro/app/build
 /Redmi Note 9 Pro/release.keystore
 
+# Redmi Note 9 Pro "Version 1" (1:1-Kopie des Recovery-Stands, eigener Ordner + CI)
+/Redmi Note 9 Pro - Version 1/.gradle
+/Redmi Note 9 Pro - Version 1/app/build
+/Redmi Note 9 Pro - Version 1/release.keystore
+/Redmi Note 9 Pro - Version 1/local.properties
+
 # Moto G84 5G device variant build output (Eigenes Gradle-Projekt im Repo)
 /Moto G84 5G/.gradle
 /Moto G84 5G/app/build
