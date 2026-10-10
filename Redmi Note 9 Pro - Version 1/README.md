@@ -24,7 +24,7 @@ Optionales signiertes Release: Repo-Secrets `ANDROID_KEYSTORE_BASE64`,
 
 ### Lokal
 ```powershell
-cd "Redmi Note 9 Pro"
+cd "Redmi Note 9 Pro - Version 1"
 .\gradlew.bat assembleDebug
 # APK: app\build\outputs\apk\debug\app-debug.apk
 ```
