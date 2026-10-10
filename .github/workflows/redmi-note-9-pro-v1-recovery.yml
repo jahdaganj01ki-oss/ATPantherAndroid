@@ -10,21 +10,15 @@ name: Redmi Note 9 Pro - Version 1 Recovery Build
 # Referenz-Stand, damit das Verhalten der ersten Version auf dem Geraet
 # verglichen werden kann. Aenderungen gehoeren nach "Redmi Note 9 Pro/".
 #
+# Der Build laeuft ausschliesslich manuell: die Push-/PullRequest-Trigger sind
+# entfernt, gestartet wird ueber "Run workflow" in den Actions. Der Snapshot
+# ist eingefroren - ein Push soll dazu nicht automatisch einen Lauf ausloesen.
+#
 # Release-APK: Falls im Repo-Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
 # ANDROID_KEY_ALIAS und ANDROID_KEY_PASSWORD gesetzt sind, wird ein signiertes
 # Release-APK erzeugt; ohne Secrets nur Debug-APK.
 
 on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - "Redmi Note 9 Pro - Version 1 Recovery/**"
-      - ".github/workflows/redmi-note-9-pro-v1-recovery.yml"
-  pull_request:
-    branches: [ main, master ]
-    paths:
-      - "Redmi Note 9 Pro - Version 1 Recovery/**"
-      - ".github/workflows/redmi-note-9-pro-v1-recovery.yml"
   workflow_dispatch:
 
 # Signaturen-Freischaltung: Secret gesetzt => Release-APK wird gebaut+signiert.
