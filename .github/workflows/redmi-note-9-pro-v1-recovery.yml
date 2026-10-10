@@ -1,0 +1,115 @@
+name: Redmi Note 9 Pro - Version 1 Recovery Build
+
+# Baut den 1:1-Snapshot der ersten Redmi-Note-9-Pro-Variante
+# (Ordner "Redmi Note 9 Pro - Version 1 Recovery/", Inhalt = Commit 9fd8da2).
+#
+# Der Ordner ist ein eigenstaendiges Gradle-Projekt – daher wird mit
+# working-directory hineingewechselt und dessen eigener Wrapper genutzt.
+#
+# WICHTIG: Bewusst KEINE Code-Aenderungen an diesem Ordner. Er ist ein
+# Referenz-Stand, damit das Verhalten der ersten Version auf dem Geraet
+# verglichen werden kann. Aenderungen gehoeren nach "Redmi Note 9 Pro/".
+#
+# Release-APK: Falls im Repo-Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS und ANDROID_KEY_PASSWORD gesetzt sind, wird ein signiertes
+# Release-APK erzeugt; ohne Secrets nur Debug-APK.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "Redmi Note 9 Pro - Version 1 Recovery/**"
+      - ".github/workflows/redmi-note-9-pro-v1-recovery.yml"
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - "Redmi Note 9 Pro - Version 1 Recovery/**"
+      - ".github/workflows/redmi-note-9-pro-v1-recovery.yml"
+  workflow_dispatch:
+
+# Signaturen-Freischaltung: Secret gesetzt => Release-APK wird gebaut+signiert.
+env:
+  HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Redmi Note 9 Pro - Version 1 Recovery"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode signing keystore (optional)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "ATP_KEYSTORE_PATH=$GITHUB_WORKSPACE/Redmi Note 9 Pro - Version 1 Recovery/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build Debug APK
+        run: |
+          # pipefail ist noetig: ohne ihn verschluckt tee den Exit-Code von
+          # Gradle und der Schritt meldet Erfolg, obwohl nichts gebaut wurde.
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-build.log
+
+      # Gradle-/kotlinc-Fehler als Check-Annotation ausgeben: sie stehen
+      # direkt am Commit und sind ohne Login ueber die API auslesbar.
+      - name: Buildfehler ausgeben
+        if: always()
+        run: |
+          if [ -f gradle-build.log ]; then
+            tr -d '\r' < gradle-build.log |
+              grep -E '^e: |error:|ERROR|FAILURE:|^> Task .* FAILED|What went wrong' |
+              head -30 |
+              while IFS= read -r line; do
+                echo "::error::$line"
+              done
+          fi
+          exit 0
+
+      - name: Build Release APK (nur mit Keystore-Secrets)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Rename APK (AT Panther Redmi Note 9 Pro v1.apk)
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Redmi Note 9 Pro v1.apk"
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            mv app/build/outputs/apk/release/app-release.apk "AT Panther Redmi Note 9 Pro v1.apk"
+          fi
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AT-Panther-RedmiNote9Pro-V1-Recovery-debug-apk
+          path: "Redmi Note 9 Pro - Version 1 Recovery/AT Panther Redmi Note 9 Pro v1.apk"
+          retention-days: 14
+
+      - name: Upload Release APK
+        if: env.HAS_KEYSTORE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AT-Panther-RedmiNote9Pro-V1-Recovery-release-apk
+          path: "Redmi Note 9 Pro - Version 1 Recovery/AT Panther Redmi Note 9 Pro v1.apk"
+          retention-days: 14
