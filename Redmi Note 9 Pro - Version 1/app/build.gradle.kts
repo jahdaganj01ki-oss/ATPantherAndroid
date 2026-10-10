@@ -32,7 +32,7 @@ android {
     signingConfigs {
         create("release") {
             // Nur wirksam, wenn die CI-Secrets gesetzt sind
-            // (siehe .github/workflows/redmi-note-9-pro.yml -> Decode signing keystore).
+            // (siehe .github/workflows/redmi-note-9-pro-version-1.yml -> Decode signing keystore).
             val ksPath = System.getenv("ATP_KEYSTORE_PATH")
             if (ksPath != null) {
                 storeFile = file(ksPath)

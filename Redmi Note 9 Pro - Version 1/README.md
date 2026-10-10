@@ -14,10 +14,12 @@ sein.
 ## Build
 
 ### GitHub Actions
-Der Workflow `.github/workflows/redmi-note-9-pro.yml` baut bei jedem Push auf
-`main`/`master`, der den Ordner `Redmi Note 9 Pro/` berührt, automatisch ein
-APK und lädt es als Artifact **AT-Panther-RedmiNote9Pro-debug-apk** hoch.
-Die APK-Datei im Artifact heißt **`AT Panther.apk`** (nicht `app-debug.apk`).
+Der Workflow `.github/workflows/redmi-note-9-pro-version-1.yml` baut bei jedem Push auf
+`main`/`master`, der den Ordner `Redmi Note 9 Pro - Version 1/` berührt, automatisch
+Debug- und Release-APK und lädt sie als Artifacts **AT-Panther-RedmiNote9Pro-Version1-debug-apk**
+und **AT-Panther-RedmiNote9Pro-Version1-release-apk** hoch.
+Die APK-Dateien in den Artifacts heißen **`AT Panther Redmi Note 9 Pro Version 1 Debug.apk`**
+bzw. **`AT Panther Redmi Note 9 Pro Version 1 Release.apk`**.
 
 Optionales signiertes Release: Repo-Secrets `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` setzen.

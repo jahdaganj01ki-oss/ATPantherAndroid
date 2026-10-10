@@ -7,9 +7,10 @@ name: Redmi Note 9 Pro - Version 1 Build
 # Der Ordner ist ein eigenstaendiges Gradle-Projekt – daher wird mit
 # working-directory hineingewechselt und dessen eigener Wrapper genutzt.
 #
-# Release-APK: Falls im Repo-Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
-# ANDROID_KEY_ALIAS und ANDROID_KEY_PASSWORD gesetzt sind, wird ein signiertes
-# Release-APK erzeugt; ohne Secrets nur Debug-APK.
+# Release-APK: Alle Builds (Debug + Release) laufen via GitHub Actions.
+# Falls die Repo-Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS und ANDROID_KEY_PASSWORD gesetzt sind, wird das
+# Release-APK signiert; ohne Secrets wird es unsigniert gebaut.
 
 on:
   push:
@@ -81,32 +82,28 @@ jobs:
           fi
           exit 0
 
-      - name: Build Release APK (nur mit Keystore-Secrets)
-        if: env.HAS_KEYSTORE == 'true'
+      - name: Build Release APK (alle Builds laufen via Actions)
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon --stacktrace assembleRelease
 
-      - name: Rename APK (AT Panther Redmi Note 9 Pro Version 1.apk)
+      - name: Rename APKs (getrennte Debug-/Release-Dateinamen)
         run: |
-          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Redmi Note 9 Pro Version 1.apk"
-          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
-            mv app/build/outputs/apk/release/app-release.apk "AT Panther Redmi Note 9 Pro Version 1.apk"
-          fi
+          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Redmi Note 9 Pro Version 1 Debug.apk"
+          mv app/build/outputs/apk/release/app-release.apk "AT Panther Redmi Note 9 Pro Version 1 Release.apk"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: AT-Panther-RedmiNote9Pro-Version1-debug-apk
-          path: "Redmi Note 9 Pro - Version 1/AT Panther Redmi Note 9 Pro Version 1.apk"
+          path: "Redmi Note 9 Pro - Version 1/AT Panther Redmi Note 9 Pro Version 1 Debug.apk"
           retention-days: 14
 
       - name: Upload Release APK
-        if: env.HAS_KEYSTORE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: AT-Panther-RedmiNote9Pro-Version1-release-apk
-          path: "Redmi Note 9 Pro - Version 1/AT Panther Redmi Note 9 Pro Version 1.apk"
+          path: "Redmi Note 9 Pro - Version 1/AT Panther Redmi Note 9 Pro Version 1 Release.apk"
           retention-days: 14
