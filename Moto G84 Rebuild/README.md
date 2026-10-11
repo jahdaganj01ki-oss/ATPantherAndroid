@@ -47,9 +47,32 @@ Die Freigabe-Karte steht **ganz oben** auf der Seite:
   Fail-open-Schalter
 
 Startet der Monitor ohne eingetragene URL, startet er **nicht**
-(fail-closed). Nach frischer Übernahme wartet der Dienst 120 s
-(Cooldown), damit die erste Abfrage nicht direkt hinter der letzten der
-alten Variante liegt.
+(fail-closed).
+
+### Cooldown dieser Variante: 10 s statt 120 s
+
+Nach frischer Übernahme wartet der Dienst hier **10 s**, bevor er das Portal
+zum ersten Mal anfasst. Der Worker hätte von sich aus 120 s gesetzt – diese
+Variante schickt aber `cooldownMs = 10000` im Request mit. Der Worker wertet
+den Wert aus (`clampCooldown`, nur nach oben begrenzt), deshalb war **kein
+Redeploy des Workers** nötig. Die übrigen Varianten fragen den Worker ohne
+dieses Feld und behalten ihre 120 s.
+
+Festgelegt in `MonitorGate.COOLDOWN_MS`. Wirkt für `evaluate(autoClaim = true)`
+und für `claim()`; `/release` ist nicht betroffen.
+
+> **Bewusste Abwägung:** `CHECK_INTERVAL_MS` bleibt bewusst bei 5 min. Das
+> alte Gerät erfährt erst bei seinem nächsten echten Worker-Abruf vom Verlust
+> der Freigabe und fragt bis dahin weiter (der Cache liefert `allowed` ohne
+> Netzabruf). Mit 10 s startet diese Variante also früher in ein Fenster, in
+> dem das alte Gerät noch pollen kann.
+>
+> Für echte Überlappungsfreiheit müsste der Cooldown ≥ `CHECK_INTERVAL_MS`
+> sein – dann wartet man aber länger. Wer beides will, senkt stattdessen
+> `CHECK_INTERVAL_MS` (z. B. auf 10 s): dann macht die App vor *jedem* Poll
+> einen echten Sync, das alte Gerät merkt den Verlust binnen eines
+> Intervalls, und 10 s Cooldown werden sicher. Kosten: ~1.440 statt 288
+> Worker-Aufrufe pro Tag und Gerät (kostenloses Cloudflare-Limit: 100.000).
 
 ### Wichtig: eigene Varianten-ID
 

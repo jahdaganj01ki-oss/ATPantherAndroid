@@ -86,6 +86,27 @@ class MonitorGate(context: Context) {
         /** Wie lange der letzte bekannte Stand bei Server-Ausfall gilt. */
         const val CACHE_GRACE_MS = 30 * 60 * 1000L
 
+        /**
+         * Cooldown nach frischer Uebernahme: 10 s statt der Worker-Vorgabe 120 s.
+         *
+         * Der Worker wertet `cooldownMs` aus dem Request-Body aus
+         * (`clampCooldown`, nur nach oben begrenzt) und faellt sonst auf
+         * `DEFAULT_COOLDOWN_MS` = 120 s zurueck. Deshalb genuegt dieser eine
+         * Eintrag - der Worker muss dafuer NICHT neu deployed werden.
+         *
+         * Gilt fuer `evaluate(autoClaim = true)` und fuer `claim()` (steal).
+         * `/release` ist nicht betroffen.
+         *
+         * ACHTUNG - bewusste Abwaechslung: [CHECK_INTERVAL_MS] bleibt bei 5 min.
+         * Das alte Geraet erfährt erst bei seinem naechsten echten
+         * Worker-Abruf vom Verlust der Freigabe und fragt bis dahin weiter ab
+         * (der Cache liefert "allowed" ohne Netzabruf). Mit 10 s Cooldown
+         * startet diese Variante also frueher in ein Fenster, in dem das alte
+         * Geraet noch pollen kann. Fuer echte Ueberlappungsfreiheit muesste
+         * der Cooldown >= CHECK_INTERVAL_MS sein - dann waertet man aber laenger.
+         */
+        const val COOLDOWN_MS = 10_000L
+
         private const val PREFS = "at_panther_lock"
         private const val PREF_URL = "worker_url"
         private const val PREF_TOKEN = "worker_token"
@@ -287,6 +308,7 @@ class MonitorGate(context: Context) {
             .put("ttlSeconds", TTL_SECONDS)
             .put("claimIfFree", claimIfFree)
             .put("steal", steal)
+            .put("cooldownMs", COOLDOWN_MS)
         return try {
             val json = post(url, "/sync", body.toString())
             val state = parseState(json) ?: return unreachable()
