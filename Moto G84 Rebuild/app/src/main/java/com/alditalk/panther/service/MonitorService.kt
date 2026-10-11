@@ -15,6 +15,7 @@ import com.alditalk.panther.auth.AuthService
 import com.alditalk.panther.monitor.GateResult
 import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.data.AppDatabase
+import com.alditalk.panther.data.LogDao
 import com.alditalk.panther.data.LogEntry
 import kotlinx.coroutines.*
 
