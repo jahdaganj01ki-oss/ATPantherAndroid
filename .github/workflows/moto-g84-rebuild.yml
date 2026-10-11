@@ -94,8 +94,22 @@ jobs:
 
       - name: Rename APKs (getrennte Debug-/Release-Dateinamen)
         run: |
+          # Ohne Keystore-Secrets hat der release-BuildType kein signingConfig;
+          # AGP erzeugt dann "app-release-unsigned.apk" statt "app-release.apk".
+          # Beide Faelle abdecken, sonst bricht der Schritt beim ersten Push ab.
+          set -e
           mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Moto G84 Rebuild Debug.apk"
-          mv app/build/outputs/apk/release/app-release.apk "AT Panther Moto G84 Rebuild Release.apk"
+          RELEASE_APK=""
+          for f in app/build/outputs/apk/release/app-release.apk \
+                   app/build/outputs/apk/release/app-release-unsigned.apk; do
+            if [ -f "$f" ]; then RELEASE_APK="$f"; break; fi
+          done
+          if [ -z "$RELEASE_APK" ]; then
+            echo "::error::Kein Release-APK unter app/build/outputs/apk/release/ gefunden"
+            exit 1
+          fi
+          echo "Release-APK gefunden: $RELEASE_APK"
+          mv "$RELEASE_APK" "AT Panther Moto G84 Rebuild Release.apk"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
