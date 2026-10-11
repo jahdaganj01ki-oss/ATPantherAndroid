@@ -6,7 +6,10 @@ plugins {
 
 android {
     namespace = "com.alditalk.panther"
-    compileSdk = 34
+    // Moto G84 laeuft auf Android 15. targetSdk 35 aktiviert die
+    // Edge-to-edge-Pflicht und die Android-15-Dienstregeln (specialUse statt
+    // dataSync) – beides wird im Manifest und in MainActivity umgesetzt.
+    compileSdk = 35
 
     defaultConfig {
         // Eigene applicationId, damit der Rebuild parallel zur Original-App,
@@ -14,21 +17,23 @@ android {
         // bleibt (kein Update-Konflikt).
         applicationId = "com.alditalk.panther.motog84rebuild"
         minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.2-x11pro-rebuild"
+        targetSdk = 35
+        versionCode = 2
+        versionName = "1.7-motog84rebuild"
 
-        // Ulefone Power Armor X11Pro: arm64-v8a + armeabi-v7a reichen;
-        // schlanke APK ohne x86-Emulatoren-ABIs.
+        // Moto G84: Snapdragon 695 (64-Bit ARM). Nur arm64-v8a – der
+        // armeabi-v7a-Split waere reine Ballast-APK, 32-Bit-Laeufer gibt es
+        // beim G84 nicht.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
 
         // ResConfigs: nur deutsch + englisch, spart Resource-Matching zur Laufzeit
         resConfigs("de", "en")
     }
 
-    // X11Pro hat Android 12 (API 31) -> Downgrade-Builds fuer aeltere Geraete nicht noetig
+    // Moto G84 hat Android 15 ab Werk - targetSdk 35 deckt das ab.
+    // Kein Downgrade-Build fuer aeltere Geraete noetig.
     signingConfigs {
         create("release") {
             // Nur wirksam, wenn die CI-Secrets gesetzt sind

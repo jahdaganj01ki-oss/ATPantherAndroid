@@ -12,6 +12,8 @@ import com.alditalk.panther.MainActivity
 import com.alditalk.panther.R
 import com.alditalk.panther.api.AldiTalkApi
 import com.alditalk.panther.auth.AuthService
+import com.alditalk.panther.monitor.GateResult
+import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.data.AppDatabase
 import com.alditalk.panther.data.LogEntry
 import kotlinx.coroutines.*
@@ -55,17 +57,28 @@ class MonitorService : Service() {
         private const val PREF_PAUSED_AFTER_FAILURES = "paused_after_connection_failures"
         private const val WAKELOCK_TAG = "ATPanther:MonitorWake"
 
-        // Default-Schwelle (Anforderung 2) – 850 MB
-        private const val DEFAULT_THRESHOLD_MB = 850f
+        // Default-Schwelle – 950 MB (muss mit defaultThresholdMb in
+        // MainActivity und dem Fallback in MonitorWakeReceiver uebereinstimmen,
+        // sonst startet ein Alarm-/Boot-Neustart mit einer anderen Schwelle,
+        // als die App anzeigt).
+        private const val DEFAULT_THRESHOLD_MB = 950f
         private const val DEFAULT_INTERVAL_SEC = 60
 
         // Doppelbuchung bei komplett leerem Volumen: Anzeige "0,0 MB"
         // entspricht (durch "%.1f"-Rundung) allem < 0,05 MB. In dem Fall
         // wird nach der ersten 1-GB-Buchung – bei Erfolg – nach kurzer
-        // Pause (3 s) plus frischer Datenabfrage ein zweites Mal gebucht
+        // Pause plus frischer Datenabfrage ein zweites Mal gebucht
         // (wie 2x Klick auf "+1GB" im Portal, je mit Benachrichtigung).
         private const val ZERO_VOLUME_EPSILON_MB = 0.05
-        private const val SECOND_BOOKING_DELAY_MS = 3_000L
+        private const val SECOND_BOOKING_DELAY_MS = 12_000L
+
+        /**
+         * Nach einer Buchung kurz warten und die Meldung zur Bestaetigung
+         * nachschieben. Ohne diese Pause meldete der Service sofort das
+         * alte Volumen; der Portalzustand war da aber oft noch nicht
+         * aktualisiert.
+         */
+        private const val CONFIRM_DELAY_MS = 5_000L
 
         const val EXTRA_PHONE = "phone"
         const val EXTRA_PASSWORD = "password"
@@ -78,6 +91,38 @@ class MonitorService : Service() {
         const val ACTION_STATUS_UPDATE = "com.alditalk.panther.STATUS_UPDATE"
         const val EXTRA_STATUS_TEXT = "status_text"
         const val EXTRA_REMAINING_MB = "remaining_mb"
+
+        // ── Monitor-Freigabe (v1.7) ──
+        // Eigene Notification-ID: die Bereitschafts-Meldung muss das
+        // Service-Stop ueberleben, genau wie die Pause-Meldung.
+        private const val NOTIFICATION_ID_STANDBY = 3
+        /** Status-Flag: eine andere Variante haelt die Freigabe. */
+        private const val PREF_STANDBY = "lock_standby"
+
+        /**
+         * Android-15-Nachhilfe: stellt den Fallback-Alarm nach einem Reboot
+         * scharf, ohne den Foreground-Service direkt zu starten. Ab API 35
+         * ist ein FGS-Start aus BOOT_COMPLETED verboten – siehe
+         * MonitorWakeReceiver.
+         */
+        fun scheduleFallbackAfterBoot(context: Context) {
+            try {
+                val alarmMgr = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                val intent = Intent(context, MonitorWakeReceiver::class.java).apply {
+                    action = MonitorWakeReceiver.ACTION_RESTART_MONITOR
+                }
+                // 60 s nach Boot: genug Zeit, dass das System hochgefahren ist.
+                val triggerAt = System.currentTimeMillis() + 60_000L
+                val pi = PendingIntent.getBroadcast(
+                    context, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmMgr.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+                Log.i(TAG, "Fallback-Alarm nach Boot gesetzt (+60 s)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback-Alarm nach Boot konnte nicht gesetzt werden", e)
+            }
+        }
     }
 
     private var serviceJob: Job? = null
@@ -107,6 +152,7 @@ class MonitorService : Service() {
         if (intent?.action == ACTION_STOP) {
             cancelFallbackAlarm()
             cancelPausedAlert()
+            cancelStandbyAlert()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -115,6 +161,7 @@ class MonitorService : Service() {
         if (intent?.action == ACTION_RESET_CONNECTION_PAUSE) {
             clearConnectionPause()
             cancelPausedAlert()
+            cancelStandbyAlert()
             updateNotification("Verbindungspause aufgehoben — starte neu...")
             stopSelf()
             return START_NOT_STICKY
@@ -143,6 +190,8 @@ class MonitorService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification("Starte Monitor..."))
         // Evtl. noch sichtbare Pause-Alarm-Meldung aus dem letzten Lauf raeumen.
         cancelPausedAlert()
+        // Eine noch sichtbare Bereitschafts-Meldung aus dem letzten Lauf raeumen.
+        cancelStandbyAlert()
 
         // Service-Laufparameter für AlarmManager-Restart merken
         scheduleFallbackAlarm(lastIntervalSec)
@@ -312,6 +361,36 @@ class MonitorService : Service() {
         intervalSec: Int,
     ) {
         val logDao = AppDatabase.getDatabase(this).logDao()
+        val gate = MonitorGate(this)
+
+        // -- Freigabe-Gate ------------------------------------------------
+        // Nur der Inhaber der Lease darf das Portal abfragen. Die Pruefung
+        // steht bewusst VOR dem Login: die ForgeRock-PoW-Kette ist der
+        // teuerste Teil eines Durchlaufs und wuerde sonst auf jedem Geraet
+        // parallel feuern.
+        updateNotification("Pruefe Freigabe...")
+        broadcastStatus("Pruefe Freigabe...", -1f)
+        val startGate = gate.evaluate(autoClaim = true)
+        if (!startGate.allowed) {
+            enterStandby(logDao, startGate)
+            return
+        }
+        clearStandby()
+
+        // Nach einer FRISCHEN Uebernahme kurz warten, bevor das Portal zum
+        // ersten Mal angefasst wird. Das alte Geraet kann noch mitten in
+        // einem Durchlauf stehen; ein sofortiger erster Poll wuerde die
+        // Abfragen zu dicht aufeinander legen (Sperr-Risiko).
+        if (startGate.cooldownMs > 0) {
+            val waitMsg = "Freigabe uebernommen – warte ${startGate.cooldownMs / 1000} s " +
+                "bevor das Portal abgefragt wird"
+            Log.i(TAG, waitMsg)
+            logDao.insert(LogEntry(type = "CHECK", message = waitMsg))
+            updateNotification(waitMsg)
+            broadcastStatus(waitMsg, -1f)
+            delay(startGate.cooldownMs)
+            if (!isRunning || serviceJob?.isActive != true) return
+        }
 
         // Initialer Login
         updateNotification("Anmelde...")
@@ -370,6 +449,19 @@ class MonitorService : Service() {
                     if (logDao.count() > MAX_LOG_ROWS) {
                         logDao.deleteBeyondLimit(MAX_LOG_ROWS)
                     }
+                }
+
+                // Vor JEDEM Poll erneut pruefen. Wer die Freigabe verliert (die andere
+                // Variante hat sie uebernommen), geht sofort in den
+                // Bereitschaftsmodus - ohne einen einzigen Portal-Kontakt.
+                val gateResult = gate.evaluate(autoClaim = true)
+                if (!gateResult.allowed) {
+                    enterStandby(logDao, gateResult)
+                    return
+                }
+                if (gateResult.cooldownMs > 0) {
+                    delay(gateResult.cooldownMs)
+                    if (!isRunning || serviceJob?.isActive != true) return
                 }
 
                 // Fetch data status
@@ -651,6 +743,78 @@ class MonitorService : Service() {
             // ignore
         }
     }
+
+    // -- Freigabe / Bereitschaftsmodus --
+
+    /**
+     * Bereitschaftsmodus: eine andere Variante haelt die Freigabe, oder der
+     * Freigabe-Server ist nicht erreichbar. Es wird bewusst KEIN Login
+     * versucht - das Portal bleibt unberuehrt. Der Fallback-Wecker wird
+     * abbestellt, damit nicht im Minutentakt neu gestartet wird; weiter geht
+     * es erst, wenn die Freigabe aktiv uebernommen wird.
+     *
+     *  - Log-Eintrag, damit der Zustand im Verlauf nachvollziehbar bleibt
+     *  - eigene Benachrichtigung, die das Service-Stop ueberlebt
+     *  - Status-Flag blockiert Boot- und AlarmManager-Neustarts
+     */
+    private suspend fun enterStandby(logDao: LogDao, result: GateResult) {
+        Log.w(TAG, "Bereitschaftsmodus: ${result.detail}")
+        val msg = "⏸ Bereitschaft – ${result.detail}"
+        try {
+            logDao.insert(LogEntry(type = "CHECK", message = msg))
+        } catch (e: Exception) {
+            Log.w(TAG, "Standby-Log fehlgeschlagen", e)
+        }
+        cancelFallbackAlarm()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        showStandbyAlert(msg)
+        setStandby(true)
+        stopSelf()
+    }
+
+    private fun showStandbyAlert(msg: String) {
+        try {
+            val contentIntent = Intent(this, MainActivity::class.java)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 2, contentIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERTS)
+                .setContentTitle("AT Panther im Bereitschaftsmodus")
+                .setContentText(msg)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(
+                    "$msg\n\nDiese Variante fragt das ALDI-Talk-Portal NICHT ab. " +
+                        "In der App bei „Freigabe“ auf „Übernehmen“ tippen, um die " +
+                        "Überwachung auf dieses Gerät zu holen."
+                ))
+                .setSmallIcon(android.R.drawable.ic_menu_share)
+                .setColor(getColor(R.color.primary))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID_STANDBY, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "Bereitschafts-Benachrichtigung fehlgeschlagen", e)
+        }
+    }
+
+    private fun cancelStandbyAlert() {
+        try {
+            getSystemService(NotificationManager::class.java)
+                .cancel(NOTIFICATION_ID_STANDBY)
+        } catch (_: Exception) {
+            // ignore
+        }
+    }
+
+    private fun setStandby(standby: Boolean) {
+        monitorState().edit().putBoolean(PREF_STANDBY, standby).apply()
+    }
+
+    private fun clearStandby() = setStandby(false)
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

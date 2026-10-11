@@ -22,6 +22,10 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.alditalk.panther.data.LogDao
 import com.alditalk.panther.data.LogEntry
+import com.alditalk.panther.monitor.GateResult
+import com.alditalk.panther.monitor.GateStatus
+import com.alditalk.panther.monitor.LockDialog
+import com.alditalk.panther.monitor.MonitorGate
 import com.alditalk.panther.service.MonitorService
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
@@ -60,7 +64,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Default-Werte
-    private val defaultThresholdMb = 850f   // Anforderung 2: Standardwert 850 MB
+    // v1.7: 950 MB (wie Moto G84 5G). MUSS mit DEFAULT_THRESHOLD_MB in
+    // MonitorService und dem Fallback in MonitorWakeReceiver uebereinstimmen,
+    // sonst startet ein Alarm-/Boot-Neustart mit einer anderen Schwelle, als
+    // die App anzeigt.
+    private val defaultThresholdMb = 950f
     private val defaultIntervalSec = 60
 
     private lateinit var etPhone: TextInputEditText
@@ -74,6 +82,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnExportLog: MaterialButton
     private lateinit var btnBatteryOpt: MaterialButton
     private lateinit var rvLog: RecyclerView
+
+    // Monitor-Freigabe (v1.7): Status + Umschalt-Buttons auf der einen Seite
+    private lateinit var tvLockStatusInline: android.widget.TextView
+    private lateinit var btnLockClaimInline: MaterialButton
+    private lateinit var btnLockReleaseInline: MaterialButton
+    private lateinit var btnLockSettings: MaterialButton
 
     private var isServiceRunning = false
 
@@ -119,6 +133,30 @@ class MainActivity : AppCompatActivity() {
             .isAppearanceLightStatusBars = false
         setContentView(R.layout.activity_main)
 
+        // Android 15 (targetSdk 35): Edge-to-edge ist Pflicht, d.h. die App
+        // zeichnet unter Statusleiste und Display-Cutout. Ohne diese Insets
+        // laege die Titelzeile der Seite halb unter dem Ausschnitt. Die
+        // vorhandenen 16dp Padding werden deshalb zu den Insets addiert, nicht
+        // ersetzt.
+        val rootScroll = findViewById<android.view.View>(R.id.rootScroll)
+        val basePaddingLeft = rootScroll.paddingLeft
+        val basePaddingTop = rootScroll.paddingTop
+        val basePaddingRight = rootScroll.paddingRight
+        val basePaddingBottom = rootScroll.paddingBottom
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(rootScroll) { v, insets ->
+            val bars = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    or androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            v.setPadding(
+                basePaddingLeft + bars.left,
+                basePaddingTop + bars.top,
+                basePaddingRight + bars.right,
+                basePaddingBottom + bars.bottom
+            )
+            insets
+        }
+
         // View binding
         etPhone = findViewById(R.id.etPhone)
         etPassword = findViewById(R.id.etPassword)
@@ -131,6 +169,10 @@ class MainActivity : AppCompatActivity() {
         btnExportLog = findViewById(R.id.btnExportLog)
         btnBatteryOpt = findViewById(R.id.btnBatteryOpt)
         rvLog = findViewById(R.id.rvLog)
+        tvLockStatusInline = findViewById(R.id.tvLockStatusInline)
+        btnLockClaimInline = findViewById(R.id.btnLockClaimInline)
+        btnLockReleaseInline = findViewById(R.id.btnLockReleaseInline)
+        btnLockSettings = findViewById(R.id.btnLockSettings)
 
         // Verlauf: neueste zuerst – Position 0 ist immer der aktuellste
         // Eintrag (DAO: ORDER BY timestamp DESC, id DESC). Kein
@@ -182,6 +224,16 @@ class MainActivity : AppCompatActivity() {
         btnBatteryOpt.setOnClickListener {
             requestIgnoreBatteryOptimizations()
         }
+
+        // ── Monitor-Freigabe (v1.7) ──
+        // "Hier übernehmen": die andere Variante geht beim nächsten Check
+        // selbst in Bereitschaft und hört auf zu pollen.
+        btnLockClaimInline.setOnClickListener { onLockClaimInline() }
+        btnLockReleaseInline.setOnClickListener { onLockReleaseInline() }
+        btnLockSettings.setOnClickListener { LockDialog.show(this) }
+
+        // Startzustand aus dem Cache - blockiert nie, greift nur nicht ins Netz.
+        renderLock(cachedLockStatus())
 
         // Observe log entries – begrenzt auf LOG_UI_LIMIT (X11Pro-Freeze-Fix).
         // X11Pro v1.2: repeatOnLifecycle(STARTED) statt Dauer-Collect (kein
@@ -395,9 +447,94 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ── Monitor-Freigabe (v1.7) ──
+
+    /** Aktueller Freigabe-Stand aus dem Cache – blockiert nie, kein Netz. */
+    private fun cachedLockStatus(): GateResult = MonitorGate(this).cachedStatus()
+
+    /**
+     * Freigabe direkt an dieses Handy holen ("Hier übernehmen"). Die andere
+     * Variante schaltet sich beim nächsten Check selbst in den Bereitschaftsmodus.
+     */
+    private fun onLockClaimInline() {
+        val gate = MonitorGate(this)
+        if (!gate.isConfigured()) {
+            Toast.makeText(
+                this,
+                "Keine Freigabe-URL eingetragen.\n\nBitte auf " +
+                    "„Freigabe-Einstellungen“ tippen und die Worker-URL eintragen.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.lock_claim)
+            .setMessage(R.string.lock_claim_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                lifecycleScope.launch {
+                    val result = withContext(Dispatchers.IO) { gate.claim() }
+                    renderLock(result)
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (result.allowed) {
+                            "Freigabe übernommen – die andere Variante pausiert gleich."
+                        } else {
+                            "Übernommen fehlgeschlagen: ${result.detail}"
+                        },
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Eigene Freigabe abgeben, damit die andere Variante übernehmen kann. */
+    private fun onLockReleaseInline() {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { MonitorGate(this@MainActivity).release() }
+            renderLock(result)
+            Toast.makeText(this@MainActivity, result.detail, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Holt ein Freigabe-Ergebnis in die Karte oben auf der Seite. */
+    private fun renderLock(result: GateResult) {
+        if (!::tvLockStatusInline.isInitialized) return
+        val headline = when (result.status) {
+            GateStatus.ALLOWED -> "✅ Freigabe aktiv: ${result.owner}"
+            GateStatus.NOT_OWNER -> "⏸ Bereitschaft – aktiv: ${result.owner}"
+            GateStatus.FREE -> "⚪ Freigabe frei – „Hier übernehmen“ tippen"
+            GateStatus.NOT_CONFIGURED -> "⚠ Keine Freigabe-URL eingetragen"
+            GateStatus.UNREACHABLE -> "⛔ Freigabe-Server nicht erreichbar"
+            else -> "⚠ Freigabe unsicher"
+        }
+        val text = if (result.allowed && result.cooldownMs > 0) {
+            "$headline\n${result.detail}\n⏳ Erste Abfrage in ${result.cooldownMs / 1000} s"
+        } else {
+            "$headline\n${result.detail}"
+        }
+        tvLockStatusInline.text = text
+        tvLockStatusInline.setTextColor(
+            getColor(if (result.allowed) R.color.status_ok else R.color.status_warn)
+        )
+    }
+
     // ── Service control ──
 
     private fun startMonitor() {
+        // Ohne Freigabe-URL startet der Monitor nicht: der Schutz gegen
+        // parallele Abfragen mehrerer Varianten ist bewusst fail-closed.
+        if (!MonitorGate(this).isConfigured()) {
+            Toast.makeText(
+                this,
+                "Ohne Freigabe-URL startet der Monitor nicht.\n\nBitte oben bei " +
+                    "„Freigabe-Einstellungen“ die Worker-URL eintragen und speichern.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         val state = getSharedPreferences("at_panther_monitor_state", MODE_PRIVATE)
         if (state.getBoolean("paused_after_connection_failures", false)) {
             // Erster Start-Tipp hebt die Pause NUR auf – der Monitor startet

@@ -168,9 +168,38 @@ class AldiTalkApi(private val client: OkHttpClient) {
                 .build()
 
             val response = client.newCall(request).execute()
-            val respBody = response.body?.string() ?: "{}"
-            val respJson = JSONObject(respBody)
-            val isUpdated = respJson.optBoolean("isUpdated", false)
+            val respBody = response.body?.string().orEmpty()
+
+            // Das Portal antwortet nicht immer mit JSON: bei einem zu schnellen
+            // zweiten POST kam ein HTML-Dokument (DOCTYPE) zurueck, das JSONObject
+            // warf. Deshalb erst pruefen, ob ueberhaupt JSON kommt.
+            val trimmed = respBody.trimStart()
+            if (!trimmed.startsWith("{")) {
+                // WICHTIG: Eine HTML-Antwort kann eine erfolgreiche Buchung
+                // bedeuten (das Portal kann nach dem POST eine Seite ausliefern).
+                // Deshalb hier bewusst NICHT wiederholen – der naechste Poll
+                // zeigt, ob das Volumen gestiegen ist. Ein automatisches Retry
+                // wuerde genau das 2. GB doppelt buchen.
+                Log.w(
+                    TAG,
+                    "Booking: HTTP ${response.code} mit Nicht-JSON-Antwort " +
+                        "(${respBody.length} Zeichen) – nicht als Fehler gewertet"
+                )
+                return@withContext BookingResult(
+                    success = false,
+                    isUpdated = false,
+                    statusCode = response.code,
+                    message = "HTML-Antwort statt JSON (HTTP ${response.code})",
+                )
+            }
+
+            val respJson = try {
+                JSONObject(respBody)
+            } catch (e: Exception) {
+                Log.w(TAG, "Booking: JSON nicht parsebar (HTTP ${response.code})", e)
+                null
+            }
+            val isUpdated = respJson?.optBoolean("isUpdated", false) ?: false
 
             Log.d(TAG, "Booking: ${response.code}, isUpdated=$isUpdated")
             BookingResult(

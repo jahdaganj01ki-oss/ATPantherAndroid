@@ -5,8 +5,10 @@
       Ausschliesslich Schwarz/Weiss/Grau. Dunkler Hintergrund, helle Schrift.
       Keine bunten Akzente – violette/blueaetige Farben vollstaendig entfernt.
     -->
-    <color name="primary">#FFFFFF</color>            <!-- Weiss – gefuellte Buttons/Akzente -->
+    <color name="primary">#FFFFFF</color>            <!-- Weiss - gefuellte Buttons/Akzente -->
     <color name="primary_dark">#6E6E6E</color>       <!-- Mittelgrau (Primary-Variante) -->
+    <!-- Grau - gefuellte Buttons (Freigabe-Karte: "Hier übernehmen") -->
+    <color name="button_filled_gray">#9E9E9E</color>
     <color name="accent">#E0E0E0</color>             <!-- Hellgrau – Titel-/Akzenttext -->
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
