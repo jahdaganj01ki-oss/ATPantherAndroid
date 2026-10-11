@@ -34,6 +34,12 @@ local.properties
 /Moto G84 5G/release.keystore
 /Moto G84 5G/local.properties
 
+# Moto G84 Rebuild (1:1-Kopie des X11Pro-Stands v1.2, einseitiges UI, eigener Ordner + CI)
+/Moto G84 Rebuild/.gradle
+/Moto G84 Rebuild/app/build
+/Moto G84 Rebuild/release.keystore
+/Moto G84 Rebuild/local.properties
+
 # Windows-Port (.NET) build output
 [Ww]indows/**/bin/
 [Ww]indows/**/obj/

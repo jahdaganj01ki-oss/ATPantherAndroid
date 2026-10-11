@@ -1,0 +1,112 @@
+name: Moto G84 Rebuild Build (X11Pro v1.2, einseitig)
+
+# Baut den Ordner "Moto G84 Rebuild/" als eigenes APK.
+#
+# Inhalt ist eine 1:1-Kopie der X11Pro-Variante im Stand v1.2-x11pro
+# (Commit dfa10e3) - dem letzten Stand, BEVOR das UI auf zwei Seiten
+# (ViewPager2: Haupt + Verlauf, eingefuehrt in v1.3) geteilt wurde.
+# Ein einziges ScrollView, keine Fragmente, kein Tab-Umschalter.
+#
+# Der Ordner ist ein eigenstaendiges Gradle-Projekt - daher wird mit
+# working-directory hineingewechselt und dessen eigener Wrapper genutzt.
+#
+# Release-APK: Alle Builds (Debug + Release) laufen via GitHub Actions.
+# Falls die Repo-Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS und ANDROID_KEY_PASSWORD gesetzt sind, wird das
+# Release-APK signiert; ohne Secrets wird es unsigniert gebaut.
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - "Moto G84 Rebuild/**"
+      - ".github/workflows/moto-g84-rebuild.yml"
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - "Moto G84 Rebuild/**"
+      - ".github/workflows/moto-g84-rebuild.yml"
+  workflow_dispatch:
+
+# Signaturen-Freischaltung: Secret gesetzt => Release-APK wird gebaut+signiert.
+env:
+  HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Moto G84 Rebuild"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode signing keystore (optional)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "ATP_KEYSTORE_PATH=$GITHUB_WORKSPACE/Moto G84 Rebuild/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build Debug APK
+        run: |
+          # pipefail ist noetig: ohne ihn verschluckt tee den Exit-Code von
+          # Gradle und der Schritt meldet Erfolg, obwohl nichts gebaut wurde.
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee gradle-build.log
+
+      # Gradle-/kotlinc-Fehler als Check-Annotation ausgeben: sie stehen
+      # direkt am Commit und sind ohne Login ueber die API auslesbar.
+      - name: Buildfehler ausgeben
+        if: always()
+        run: |
+          if [ -f gradle-build.log ]; then
+            tr -d '\r' < gradle-build.log |
+              grep -E '^e: |error:|ERROR|FAILURE:|^> Task .* FAILED|What went wrong' |
+              head -30 |
+              while IFS= read -r line; do
+                echo "::error::$line"
+              done
+          fi
+          exit 0
+
+      - name: Build Release APK (alle Builds laufen via Actions)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Rename APKs (getrennte Debug-/Release-Dateinamen)
+        run: |
+          mv app/build/outputs/apk/debug/app-debug.apk "AT Panther Moto G84 Rebuild Debug.apk"
+          mv app/build/outputs/apk/release/app-release.apk "AT Panther Moto G84 Rebuild Release.apk"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AT-Panther-MotoG84Rebuild-debug-apk
+          path: "Moto G84 Rebuild/AT Panther Moto G84 Rebuild Debug.apk"
+          retention-days: 14
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AT-Panther-MotoG84Rebuild-release-apk
+          path: "Moto G84 Rebuild/AT Panther Moto G84 Rebuild Release.apk"
+          retention-days: 14
